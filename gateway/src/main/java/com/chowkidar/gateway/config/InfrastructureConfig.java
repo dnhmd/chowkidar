@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.web.reactive.function.client.WebClient;
 
 @Configuration
 public class InfrastructureConfig {
@@ -23,5 +24,10 @@ public class InfrastructureConfig {
         script.setLocation(new ClassPathResource("scripts/sliding_window.lua"));
         script.setResultType(Long.class);
         return script;
+    }
+
+    @Bean
+    public WebClient webClient() {
+        return WebClient.builder().build();
     }
 }

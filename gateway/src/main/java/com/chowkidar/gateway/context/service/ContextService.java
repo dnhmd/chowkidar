@@ -6,6 +6,7 @@ import com.chowkidar.gateway.persistence.mappers.RouteMapper;
 import com.chowkidar.gateway.persistence.mappers.TenantMapper;
 import com.chowkidar.gateway.persistence.repositories.RouteRepository;
 import com.chowkidar.gateway.persistence.repositories.TenantRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -17,12 +18,14 @@ public class ContextService {
 
     private final TenantRepository tenantRepository;
     private final RouteRepository routeRepository;
+    private final long cacheTtlMs;
 
     private final ConcurrentHashMap<String, CachedContext<TenantContext>> cache = new ConcurrentHashMap<>();
 
-    public ContextService(TenantRepository tenantRepository, RouteRepository routeRepository) {
+    public ContextService(TenantRepository tenantRepository, RouteRepository routeRepository, @Value("${chowkidar.cache.ttl-ms:30000}") long cacheTtlMs) {
         this.tenantRepository = tenantRepository;
         this.routeRepository = routeRepository;
+        this.cacheTtlMs = cacheTtlMs;
     }
 
     public Mono<TenantContext> resolve(String apiKey) {
@@ -43,7 +46,7 @@ public class ContextService {
                             .map(routes -> new TenantContext(tenant,  routes));
                 })
                 .doOnNext(tenantContext -> {
-                    long expiry = System.currentTimeMillis() + Duration.ofSeconds(30).toMillis();
+                    long expiry = System.currentTimeMillis() + cacheTtlMs;
                     cache.put(apiKey, new CachedContext<>(tenantContext, expiry));
                 });
     }
