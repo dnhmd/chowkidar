@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: chowkidar-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: chowkidar_user
+      POSTGRES_PASSWORD: chowkidar_password
+      POSTGRES_DB: chowkidar_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - chowkidar-network
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: chowkidar-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - chowkidar-network
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  chowkidar-network:
+    driver: bridge
