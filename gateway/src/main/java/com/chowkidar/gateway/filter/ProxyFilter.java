@@ -35,7 +35,11 @@ public class ProxyFilter implements WebFilter {
             return webClient
                     .method(exchange.getRequest().getMethod())
                     .uri(upstream)
-                    .headers(h -> h.addAll(exchange.getRequest().getHeaders()))
+                    .headers(h -> {
+                        h.addAll(exchange.getRequest().getHeaders());
+                        h.remove("X-API-Key");
+                        h.remove("Host");
+                    })
                     .body(BodyInserters.fromDataBuffers(exchange.getRequest().getBody()))
                     .exchangeToMono(clientResponse -> {
                         exchange.getResponse().setStatusCode(clientResponse.statusCode());
