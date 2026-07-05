@@ -65,7 +65,7 @@ public class RateLimiterFilter implements WebFilter {
                         RateLimitResult restrictiveResult = tokenBucketResult.remaining() < slidingWindowResult.remaining() ? tokenBucketResult : slidingWindowResult;
 
                         populateHeaders(exchange.getResponse(), restrictiveResult);
-                        return chain.filter(exchange);
+                        return chain.filter(exchange).contextWrite(context -> context.put(Route.class, matchedRoute));
                     })
                     .doFinally(signal -> {
                         // TODO: emit telemetry signal
