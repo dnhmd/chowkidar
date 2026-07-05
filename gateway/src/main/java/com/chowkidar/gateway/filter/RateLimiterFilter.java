@@ -34,7 +34,7 @@ public class RateLimiterFilter implements WebFilter {
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         return Mono.deferContextual(contextView -> {
             TenantContext tenantContext = (TenantContext) contextView.getOrEmpty(TenantContext.class)
-                    .map(tenantCotext -> (TenantContext) tenantCotext)
+                    .map(tenantContextObject -> (TenantContext) tenantContextObject)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Tenant context missing"));
 
             String requestedPath = exchange.getRequest().getURI().getPath();
