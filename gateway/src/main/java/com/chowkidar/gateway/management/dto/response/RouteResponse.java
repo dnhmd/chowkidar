@@ -1,8 +1,8 @@
-package com.chowkidar.gateway.context.model;
+package com.chowkidar.gateway.management.dto.response;
 
 import java.util.UUID;
 
-public record Route(
+public record RouteResponse(
         UUID id,
         String path,
         String upstreamUrl,

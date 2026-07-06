@@ -7,6 +7,7 @@ public class RouteMapper {
 
     public static Route toContext(RouteEntity entity) {
         return new Route(
+                entity.id,
                 entity.path,
                 entity.upstreamUrl,
                 entity.capacity,
