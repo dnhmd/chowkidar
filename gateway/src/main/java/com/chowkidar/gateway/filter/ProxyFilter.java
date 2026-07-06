@@ -1,5 +1,6 @@
 package com.chowkidar.gateway.filter;
 
+import com.chowkidar.gateway.config.GatewayPaths;
 import com.chowkidar.gateway.context.model.Route;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.io.buffer.DataBuffer;
@@ -25,6 +26,8 @@ public class ProxyFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+        if (GatewayPaths.isManagementPath(exchange.getRequest().getURI().getPath()))
+            return chain.filter(exchange);
         return Mono.deferContextual(contextView -> {
             Route matchedRoute = (Route) contextView.getOrEmpty(Route.class)
                     .map(matchedRouteObject -> (Route) matchedRouteObject)

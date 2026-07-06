@@ -1,5 +1,6 @@
 package com.chowkidar.gateway.filter;
 
+import com.chowkidar.gateway.config.GatewayPaths;
 import com.chowkidar.gateway.context.model.Route;
 import com.chowkidar.gateway.context.model.Tenant;
 import com.chowkidar.gateway.context.model.TenantContext;
@@ -32,6 +33,8 @@ public class RateLimiterFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+        if (GatewayPaths.isManagementPath(exchange.getRequest().getURI().getPath()))
+            return chain.filter(exchange);
         return Mono.deferContextual(contextView -> {
             TenantContext tenantContext = (TenantContext) contextView.getOrEmpty(TenantContext.class)
                     .map(tenantContextObject -> (TenantContext) tenantContextObject)

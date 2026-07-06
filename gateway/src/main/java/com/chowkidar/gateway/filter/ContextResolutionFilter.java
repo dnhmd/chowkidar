@@ -1,5 +1,6 @@
 package com.chowkidar.gateway.filter;
 
+import com.chowkidar.gateway.config.GatewayPaths;
 import com.chowkidar.gateway.context.model.TenantContext;
 import com.chowkidar.gateway.context.service.ContextService;
 import org.springframework.core.annotation.Order;
@@ -23,6 +24,9 @@ public class ContextResolutionFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+        if (GatewayPaths.isManagementPath(exchange.getRequest().getURI().getPath()))
+            return chain.filter(exchange);
+
         String apiKey = exchange.getRequest().getHeaders().getFirst("X-API-Key");
 
         if (apiKey == null || apiKey.isBlank()) {
