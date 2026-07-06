@@ -50,6 +50,10 @@ public class ContextService {
                 });
     }
 
+    public void invalidate(String apiKey) {
+        cache.remove(apiKey);
+    }
+
     public record CachedContext<T>(T value, long expiryTime) {
         public boolean isExpired() {
             return System.currentTimeMillis() > expiryTime;
