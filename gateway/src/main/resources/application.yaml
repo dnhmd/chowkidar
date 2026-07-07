@@ -36,6 +36,11 @@ server:
 chowkidar:
   cache:
     ttl-ms: 30000
+  rate-limit:
+    default-capacity: 100
+    default-refill-rate: 10
+    default-volume-limit: 10000
+    default-window-size: 3600
 
 # Logging Configurations
 logging:
