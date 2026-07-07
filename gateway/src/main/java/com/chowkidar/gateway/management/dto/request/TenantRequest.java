@@ -1,6 +1,8 @@
 package com.chowkidar.gateway.management.dto.request;
 
+import jakarta.validation.constraints.NotBlank;
+
 public record TenantRequest(
-        String name
+        @NotBlank String name
 ) {
 }

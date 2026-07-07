@@ -5,6 +5,7 @@ import com.chowkidar.gateway.management.dto.request.UpdateRouteRateRequest;
 import com.chowkidar.gateway.management.dto.request.UpdateRouteUpstreamRequest;
 import com.chowkidar.gateway.management.dto.response.RouteResponse;
 import com.chowkidar.gateway.management.service.RouteService;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -24,7 +25,7 @@ public class RouteController {
     }
 
     @PostMapping
-    public Mono<ResponseEntity<RouteResponse>> createRoute(@PathVariable("tenantId") UUID tenantId, @RequestBody CreateRouteRequest createRouteRequest) {
+    public Mono<ResponseEntity<RouteResponse>> createRoute(@PathVariable("tenantId") UUID tenantId, @Valid @RequestBody CreateRouteRequest createRouteRequest) {
         return routeService.create(tenantId, createRouteRequest)
                 .map(routeResponse -> ResponseEntity.status(HttpStatus.CREATED).body(routeResponse));
     }
@@ -41,13 +42,13 @@ public class RouteController {
     }
 
     @PatchMapping("/{id}/upstream")
-    public Mono<ResponseEntity<RouteResponse>> updateUpstream(@PathVariable("tenantId") UUID tenantId, @PathVariable("id") UUID id, @RequestBody UpdateRouteUpstreamRequest updateRouteUpstreamRequest) {
+    public Mono<ResponseEntity<RouteResponse>> updateUpstream(@PathVariable("tenantId") UUID tenantId, @PathVariable("id") UUID id, @Valid @RequestBody UpdateRouteUpstreamRequest updateRouteUpstreamRequest) {
         return routeService.updateUpstream(tenantId, id, updateRouteUpstreamRequest)
                 .map(routeResponse -> ResponseEntity.status(HttpStatus.OK).body(routeResponse));
     }
 
     @PatchMapping("/{id}/rate")
-    public Mono<ResponseEntity<RouteResponse>> updateRouteRate(@PathVariable("tenantId") UUID tenantId, @PathVariable("id") UUID id, @RequestBody UpdateRouteRateRequest updateRouteRateRequest) {
+    public Mono<ResponseEntity<RouteResponse>> updateRouteRate(@PathVariable("tenantId") UUID tenantId, @PathVariable("id") UUID id, @Valid @RequestBody UpdateRouteRateRequest updateRouteRateRequest) {
         return routeService.updateRate(tenantId, id, updateRouteRateRequest)
                 .map(routeResponse -> ResponseEntity.status(HttpStatus.OK).body(routeResponse));
     }

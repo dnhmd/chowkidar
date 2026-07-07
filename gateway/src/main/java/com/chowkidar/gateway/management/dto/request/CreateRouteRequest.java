@@ -1,8 +1,10 @@
 package com.chowkidar.gateway.management.dto.request;
 
+import jakarta.validation.constraints.NotBlank;
+
 public record CreateRouteRequest(
-        String path,
-        String upstreamUrl,
+        @NotBlank String path,
+        @NotBlank String upstreamUrl,
         Integer capacity,
         Integer refillRate,
         Integer volumeLimit,
