@@ -50,7 +50,7 @@ public class RouteService {
 
     public Mono<RouteResponse> create(UUID tenantId, CreateRouteRequest createRouteRequest) {
         return tenantRepository.findById(tenantId)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found")))
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
                 .flatMap(tenantEntity -> {
                     return routeRepository.save(new RouteEntity(
                             tenantId,
@@ -77,7 +77,7 @@ public class RouteService {
 
     public Mono<RouteResponse> getById(UUID tenantId, UUID routeId) {
         return tenantRepository.findById(tenantId)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found")))
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
                 .flatMap(tenantEntity -> {
                     return routeRepository.findById(routeId)
                             .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))
@@ -96,7 +96,7 @@ public class RouteService {
 
     public Flux<RouteResponse> getAllByTenant(UUID tenantId) {
         return tenantRepository.findById(tenantId)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found")))
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
                 .flatMapMany(tenantEntity -> {
                     return routeRepository.findByTenantId(tenantId)
                             .map(RouteMapper::toContext)
@@ -114,7 +114,7 @@ public class RouteService {
 
     public Mono<RouteResponse> updateUpstream(UUID tenantId, UUID routeId, UpdateRouteUpstreamRequest updateRouteUpstreamRequest) {
         return tenantRepository.findById(tenantId)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found")))
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
                 .flatMap(tenantEntity -> {
                     return routeRepository.findById(routeId)
                             .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))
@@ -147,7 +147,7 @@ public class RouteService {
 
     public Mono<RouteResponse> updateRate(UUID tenantId, UUID routeId, UpdateRouteRateRequest updateRouteRateRequest) {
         return tenantRepository.findById(tenantId)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found")))
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
                 .flatMap(tenantEntity -> {
                     return routeRepository.findById(routeId)
                             .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))
@@ -180,7 +180,7 @@ public class RouteService {
 
     public Mono<Void> delete(UUID tenantId, UUID routeId) {
         return tenantRepository.findById(tenantId)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found")))
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
                 .flatMap(tenantEntity -> {
                     return routeRepository.findById(routeId)
                             .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))

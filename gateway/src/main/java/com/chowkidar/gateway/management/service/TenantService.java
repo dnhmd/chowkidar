@@ -59,13 +59,13 @@ public class TenantService {
 
     public Mono<TenantResponse> update(UUID id, TenantRequest tenantRequest) {
         return tenantRepository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found")))
-                .flatMap(existing -> tenantRepository.save(
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + id)))
+                .flatMap(tenantEntity -> tenantRepository.save(
                         new TenantEntity(
-                                existing.id,
+                                tenantEntity.id,
                                 tenantRequest.name(),
-                                existing.apiKey,
-                                existing.createdAt
+                                tenantEntity.apiKey,
+                                tenantEntity.createdAt
                         )
                 ))
                 .map(TenantMapper::toContext)
@@ -74,13 +74,13 @@ public class TenantService {
                         tenant.name(),
                         tenant.apiKey()
                 ))
-                .doOnNext(tenant -> contextService.invalidate(tenant.apiKey()));
+                .doOnNext(tenantResponse -> contextService.invalidate(tenantResponse.apiKey()));
     }
 
     public Mono<Void> delete(UUID id) {
         return tenantRepository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found")))
-                .doOnNext(tenant -> contextService.invalidate(tenant.apiKey))
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + id)))
+                .doOnNext(tenantEntity -> contextService.invalidate(tenantEntity.apiKey))
                 .flatMap(tenantRepository::delete);
     }
 }
