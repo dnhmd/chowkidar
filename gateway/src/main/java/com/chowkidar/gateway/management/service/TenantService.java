@@ -39,6 +39,7 @@ public class TenantService {
 
     public Mono<TenantResponse> getById(UUID id) {
         return tenantRepository.findById(id)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + id)))
                 .map(TenantMapper::toContext)
                 .map(tenant -> new TenantResponse(
                         tenant.id(),
