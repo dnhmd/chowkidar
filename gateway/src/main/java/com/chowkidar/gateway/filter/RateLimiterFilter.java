@@ -23,12 +23,15 @@ public class RateLimiterFilter implements WebFilter {
 
     private final RateLimiter tokenBucketLimiter;
     private final RateLimiter slidingWindowLimiter;
+    private final RateLimiter localRateLimiter;
 
     public RateLimiterFilter(
             @Qualifier("tokenBucketLimiter") RateLimiter tokenBucketLimiter,
-            @Qualifier("slidingWindowLimiter") RateLimiter slidingWindowLimiter) {
+            @Qualifier("slidingWindowLimiter") RateLimiter slidingWindowLimiter,
+            @Qualifier("localRateLimiter") RateLimiter localRateLimiter) {
         this.tokenBucketLimiter = tokenBucketLimiter;
         this.slidingWindowLimiter = slidingWindowLimiter;
+        this.localRateLimiter = localRateLimiter;
     }
 
     @Override
@@ -36,7 +39,7 @@ public class RateLimiterFilter implements WebFilter {
         if (GatewayPaths.isManagementPath(exchange.getRequest().getURI().getPath()))
             return chain.filter(exchange);
         return Mono.deferContextual(contextView -> {
-            TenantContext tenantContext = (TenantContext) contextView.getOrEmpty(TenantContext.class)
+            TenantContext tenantContext = contextView.getOrEmpty(TenantContext.class)
                     .map(tenantContextObject -> (TenantContext) tenantContextObject)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Tenant context missing"));
 
@@ -49,8 +52,10 @@ public class RateLimiterFilter implements WebFilter {
 
             Tenant tenant = tenantContext.tenant();
 
-            Mono<RateLimitResult> tokenBucketCheck = tokenBucketLimiter.limit(tenant, matchedRoute);
-            Mono<RateLimitResult> slidingWindowCheck = slidingWindowLimiter.limit(tenant, matchedRoute);
+            Mono<RateLimitResult> tokenBucketCheck = tokenBucketLimiter.limit(tenant, matchedRoute)
+                    .onErrorResume(ex -> localRateLimiter.limit(tenant, matchedRoute));
+            Mono<RateLimitResult> slidingWindowCheck = slidingWindowLimiter.limit(tenant, matchedRoute)
+                    .onErrorResume(ex -> localRateLimiter.limit(tenant, matchedRoute));
 
             return Mono.zip(tokenBucketCheck, slidingWindowCheck)
                     .flatMap(tuple -> {
