@@ -6,8 +6,14 @@ import com.chowkidar.gateway.persistence.mappers.RouteMapper;
 import com.chowkidar.gateway.persistence.mappers.TenantMapper;
 import com.chowkidar.gateway.persistence.repositories.RouteRepository;
 import com.chowkidar.gateway.persistence.repositories.TenantRepository;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.reactor.circuitbreaker.operator.CircuitBreakerOperator;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
 import java.util.concurrent.ConcurrentHashMap;
@@ -17,13 +23,21 @@ public class ContextService {
 
     private final TenantRepository tenantRepository;
     private final RouteRepository routeRepository;
+    private final CircuitBreaker postgresCircuitBreaker;
+
     private final long cacheTtlMs;
 
     private final ConcurrentHashMap<String, CachedContext<TenantContext>> cache = new ConcurrentHashMap<>();
 
-    public ContextService(TenantRepository tenantRepository, RouteRepository routeRepository, @Value("${chowkidar.cache.ttl-ms:30000}") long cacheTtlMs) {
+    public ContextService(
+            TenantRepository tenantRepository,
+            RouteRepository routeRepository,
+            CircuitBreakerRegistry circuitBreakerRegistry,
+            @Value("${chowkidar.cache.ttl-ms:30000}") long cacheTtlMs)
+    {
         this.tenantRepository = tenantRepository;
         this.routeRepository = routeRepository;
+        this.postgresCircuitBreaker = circuitBreakerRegistry.circuitBreaker("postgres");
         this.cacheTtlMs = cacheTtlMs;
     }
 
@@ -44,6 +58,9 @@ public class ContextService {
                             .collectList()
                             .map(routes -> new TenantContext(tenant,  routes));
                 })
+                .transformDeferred(CircuitBreakerOperator.of(postgresCircuitBreaker))
+                .onErrorMap(CallNotPermittedException.class, ex ->
+                        new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Database unavailable"))
                 .doOnNext(tenantContext -> {
                     long expiry = System.currentTimeMillis() + cacheTtlMs;
                     cache.put(apiKey, new CachedContext<>(tenantContext, expiry));

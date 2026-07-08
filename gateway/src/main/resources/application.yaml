@@ -46,3 +46,26 @@ chowkidar:
 logging:
   level:
     com.chowkidar.gateway: DEBUG
+
+# Circuit Breaker Configurations
+resilience4j:
+  circuit-breaker:
+    instances:
+      postgres:
+        failure-rate-threshold: 50
+        minimum-number-of-calls: 10
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
+        sliding-window-size: 20
+        sliding-window-type: COUNT_BASED
+        slow-call-rate-threshold: 80
+        slow-call-duration-threshold: 2s
+      upstream:
+        failure-rate-threshold: 60
+        minimum-number-of-calls: 10
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 5
+        sliding-window-size: 20
+        sliding-window-type: COUNT_BASED
+        slow-call-rate-threshold: 80
+        slow-call-duration-threshold: 5s

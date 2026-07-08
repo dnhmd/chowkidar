@@ -2,6 +2,10 @@ package com.chowkidar.gateway.filter;
 
 import com.chowkidar.gateway.config.GatewayPaths;
 import com.chowkidar.gateway.context.model.Route;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.reactor.circuitbreaker.operator.CircuitBreakerOperator;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpStatus;
@@ -19,9 +23,11 @@ import reactor.core.publisher.Mono;
 public class ProxyFilter implements WebFilter {
 
     private final WebClient webClient;
+    private final CircuitBreakerRegistry circuitBreakerRegistry;
 
-    public ProxyFilter(WebClient webClient) {
+    public ProxyFilter(WebClient webClient, CircuitBreakerRegistry circuitBreakerRegistry) {
         this.webClient = webClient;
+        this.circuitBreakerRegistry = circuitBreakerRegistry;
     }
 
     @Override
@@ -29,11 +35,13 @@ public class ProxyFilter implements WebFilter {
         if (GatewayPaths.isManagementPath(exchange.getRequest().getURI().getPath()))
             return chain.filter(exchange);
         return Mono.deferContextual(contextView -> {
-            Route matchedRoute = (Route) contextView.getOrEmpty(Route.class)
+            Route matchedRoute = contextView.getOrEmpty(Route.class)
                     .map(matchedRouteObject -> (Route) matchedRouteObject)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Matched route missing"));
 
             String upstream = matchedRoute.upstreamUrl() + matchedRoute.path();
+
+            CircuitBreaker upstreamCircuitBreaker = circuitBreakerRegistry.circuitBreaker("upstream-" + matchedRoute.id());
 
             return webClient
                     .method(exchange.getRequest().getMethod())
@@ -48,7 +56,10 @@ public class ProxyFilter implements WebFilter {
                         exchange.getResponse().setStatusCode(clientResponse.statusCode());
                         exchange.getResponse().getHeaders().addAll(clientResponse.headers().asHttpHeaders());
                         return exchange.getResponse().writeWith(clientResponse.bodyToFlux(DataBuffer.class));
-                    });
+                    })
+                    .transformDeferred(CircuitBreakerOperator.of(upstreamCircuitBreaker))
+                    .onErrorMap(CallNotPermittedException.class, ex ->
+                            new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Upstream service unavailable"));
         });
     }
 }
