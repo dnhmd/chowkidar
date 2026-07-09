@@ -2,6 +2,7 @@ package com.chowkidar.gateway.management.service;
 
 import com.chowkidar.gateway.context.service.ContextService;
 import com.chowkidar.gateway.management.dto.request.CreateRouteRequest;
+import com.chowkidar.gateway.management.dto.request.UpdateRouteIdempotencyRequest;
 import com.chowkidar.gateway.management.dto.request.UpdateRouteRateRequest;
 import com.chowkidar.gateway.management.dto.request.UpdateRouteUpstreamRequest;
 import com.chowkidar.gateway.management.dto.response.RouteResponse;
@@ -59,7 +60,8 @@ public class RouteService {
                             createRouteRequest.capacity() != null ? createRouteRequest.capacity() : defaultCapacity,
                             createRouteRequest.refillRate() != null ? createRouteRequest.refillRate() : defaultRefillRate,
                             createRouteRequest.volumeLimit() != null ? createRouteRequest.volumeLimit() : defaultVolumeLimit,
-                            createRouteRequest.windowSize() != null ? createRouteRequest.windowSize() : defaultWindowSize
+                            createRouteRequest.windowSize() != null ? createRouteRequest.windowSize() : defaultWindowSize,
+                            createRouteRequest.requiresIdempotency()
                     ))
                             .map(RouteMapper::toContext)
                             .map(route -> new RouteResponse(
@@ -69,7 +71,8 @@ public class RouteService {
                                     route.capacity(),
                                     route.refillRate(),
                                     route.volumeLimit(),
-                                    route.windowSize()
+                                    route.windowSize(),
+                                    route.requiresIdempotency()
                             ))
                             .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKeyHash));
                 });
@@ -89,7 +92,8 @@ public class RouteService {
                                     route.capacity(),
                                     route.refillRate(),
                                     route.volumeLimit(),
-                                    route.windowSize()
+                                    route.windowSize(),
+                                    route.requiresIdempotency()
                             ));
                 });
     }
@@ -107,7 +111,8 @@ public class RouteService {
                                     route.capacity(),
                                     route.refillRate(),
                                     route.volumeLimit(),
-                                    route.windowSize()
+                                    route.windowSize(),
+                                    route.requiresIdempotency()
                             ));
                 });
     }
@@ -128,6 +133,7 @@ public class RouteService {
                                             routeEntity.refillRate,
                                             routeEntity.volumeLimit,
                                             routeEntity.windowSize,
+                                            routeEntity.requiresIdempotency,
                                             routeEntity.createdAt
                                     )
                             ))
@@ -139,7 +145,8 @@ public class RouteService {
                                     route.capacity(),
                                     route.refillRate(),
                                     route.volumeLimit(),
-                                    route.windowSize()
+                                    route.windowSize(),
+                                    route.requiresIdempotency()
                             ))
                             .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKeyHash));
                 });
@@ -161,6 +168,7 @@ public class RouteService {
                                             updateRouteRateRequest.refillRate(),
                                             updateRouteRateRequest.volumeLimit(),
                                             updateRouteRateRequest.windowSize(),
+                                            routeEntity.requiresIdempotency,
                                             routeEntity.createdAt
                                     )
                             ))
@@ -172,7 +180,43 @@ public class RouteService {
                                     updateRouteRateRequest.capacity(),
                                     updateRouteRateRequest.refillRate(),
                                     updateRouteRateRequest.volumeLimit(),
-                                    updateRouteRateRequest.windowSize()
+                                    updateRouteRateRequest.windowSize(),
+                                    route.requiresIdempotency()
+                            ))
+                            .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKeyHash));
+                });
+    }
+
+    public Mono<RouteResponse> updateIdempotencyRequirement(UUID tenantId, UUID routeId, UpdateRouteIdempotencyRequest updateRouteIdempotencyRequest) {
+        return tenantRepository.findById(tenantId)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
+                .flatMap(tenantEntity -> {
+                    return routeRepository.findById(routeId)
+                            .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))
+                            .flatMap(routeEntity -> routeRepository.save(
+                                    new RouteEntity(
+                                            routeEntity.id,
+                                            routeEntity.tenantId,
+                                            routeEntity.path,
+                                            routeEntity.upstreamUrl,
+                                            routeEntity.capacity,
+                                            routeEntity.refillRate,
+                                            routeEntity.volumeLimit,
+                                            routeEntity.windowSize,
+                                            updateRouteIdempotencyRequest.requiresIdempotency(),
+                                            routeEntity.createdAt
+                                    )
+                            ))
+                            .map(RouteMapper::toContext)
+                            .map(route -> new RouteResponse(
+                                    routeId,
+                                    route.path(),
+                                    route.upstreamUrl(),
+                                    route.capacity(),
+                                    route.refillRate(),
+                                    route.volumeLimit(),
+                                    route.windowSize(),
+                                    updateRouteIdempotencyRequest.requiresIdempotency()
                             ))
                             .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKeyHash));
                 });

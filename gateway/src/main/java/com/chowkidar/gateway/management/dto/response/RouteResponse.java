@@ -9,6 +9,7 @@ public record RouteResponse(
         Integer capacity,
         Integer refillRate,
         Integer volumeLimit,
-        Integer windowSize
+        Integer windowSize,
+        Boolean requiresIdempotency
 ) {
 }
