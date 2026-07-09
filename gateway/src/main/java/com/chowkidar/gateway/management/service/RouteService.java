@@ -71,7 +71,7 @@ public class RouteService {
                                     route.volumeLimit(),
                                     route.windowSize()
                             ))
-                            .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKey));
+                            .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKeyHash));
                 });
     }
 
@@ -141,7 +141,7 @@ public class RouteService {
                                     route.volumeLimit(),
                                     route.windowSize()
                             ))
-                            .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKey));
+                            .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKeyHash));
                 });
     }
 
@@ -174,7 +174,7 @@ public class RouteService {
                                     updateRouteRateRequest.volumeLimit(),
                                     updateRouteRateRequest.windowSize()
                             ))
-                            .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKey));
+                            .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKeyHash));
                 });
     }
 
@@ -184,7 +184,7 @@ public class RouteService {
                 .flatMap(tenantEntity -> {
                     return routeRepository.findById(routeId)
                             .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))
-                            .doOnNext(routeEntity -> contextService.invalidate(tenantEntity.apiKey))
+                            .doOnNext(routeEntity -> contextService.invalidate(tenantEntity.apiKeyHash))
                             .flatMap(routeRepository::delete);
                 });
     }

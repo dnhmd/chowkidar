@@ -2,10 +2,13 @@ package com.chowkidar.gateway.management.service;
 
 import com.chowkidar.gateway.context.service.ContextService;
 import com.chowkidar.gateway.management.dto.request.TenantRequest;
+import com.chowkidar.gateway.management.dto.response.CreateTenantResponse;
 import com.chowkidar.gateway.management.dto.response.TenantResponse;
 import com.chowkidar.gateway.persistence.entity.TenantEntity;
 import com.chowkidar.gateway.persistence.mappers.TenantMapper;
 import com.chowkidar.gateway.persistence.repositories.TenantRepository;
+import com.chowkidar.gateway.security.HmacUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -19,21 +22,27 @@ public class TenantService {
 
     private final TenantRepository tenantRepository;
     private final ContextService contextService;
+    private final String hmacSecret;
 
-    public TenantService(TenantRepository tenantRepository, ContextService contextService) {
+    public TenantService(
+            TenantRepository tenantRepository,
+            ContextService contextService,
+            @Value("${chowkidar.security.hmac-secret:chowkidar-default-secret-change-in-production}") String hmacSecret
+    ) {
         this.tenantRepository = tenantRepository;
         this.contextService = contextService;
+        this.hmacSecret = hmacSecret;
     }
 
-    public Mono<TenantResponse> create(TenantRequest tenantRequest) {
+    public Mono<CreateTenantResponse> create(TenantRequest tenantRequest) {
         String apiKey = UUID.randomUUID().toString().replace("-", "");
-
-        return tenantRepository.save(new TenantEntity(tenantRequest.name(), apiKey))
+        String apiKeyHash = HmacUtils.hash(apiKey, hmacSecret);
+        return tenantRepository.save(new TenantEntity(tenantRequest.name(), apiKeyHash))
                 .map(TenantMapper::toContext)
-                .map(tenant -> new TenantResponse(
+                .map(tenant -> new CreateTenantResponse(
                         tenant.id(),
                         tenant.name(),
-                        tenant.apiKey()
+                        apiKey
                 ));
     }
 
@@ -43,8 +52,7 @@ public class TenantService {
                 .map(TenantMapper::toContext)
                 .map(tenant -> new TenantResponse(
                         tenant.id(),
-                        tenant.name(),
-                        tenant.apiKey()
+                        tenant.name()
                 ));
     }
 
@@ -53,8 +61,7 @@ public class TenantService {
                 .map(TenantMapper::toContext)
                 .map(tenant -> new TenantResponse(
                         tenant.id(),
-                        tenant.name(),
-                        tenant.apiKey()
+                        tenant.name()
                 ));
     }
 
@@ -65,23 +72,22 @@ public class TenantService {
                         new TenantEntity(
                                 tenantEntity.id,
                                 tenantRequest.name(),
-                                tenantEntity.apiKey,
+                                tenantEntity.apiKeyHash,
                                 tenantEntity.createdAt
                         )
                 ))
+                .doOnNext(tenantEntity -> contextService.invalidate(tenantEntity.apiKeyHash))
                 .map(TenantMapper::toContext)
                 .map(tenant -> new TenantResponse(
                         tenant.id(),
-                        tenant.name(),
-                        tenant.apiKey()
-                ))
-                .doOnNext(tenantResponse -> contextService.invalidate(tenantResponse.apiKey()));
+                        tenant.name()
+                ));
     }
 
     public Mono<Void> delete(UUID id) {
         return tenantRepository.findById(id)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + id)))
-                .doOnNext(tenantEntity -> contextService.invalidate(tenantEntity.apiKey))
+                .doOnNext(tenantEntity -> contextService.invalidate(tenantEntity.apiKeyHash))
                 .flatMap(tenantRepository::delete);
     }
 }

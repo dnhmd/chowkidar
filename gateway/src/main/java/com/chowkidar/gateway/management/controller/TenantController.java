@@ -1,6 +1,7 @@
 package com.chowkidar.gateway.management.controller;
 
 import com.chowkidar.gateway.management.dto.request.TenantRequest;
+import com.chowkidar.gateway.management.dto.response.CreateTenantResponse;
 import com.chowkidar.gateway.management.dto.response.TenantResponse;
 import com.chowkidar.gateway.management.service.TenantService;
 import jakarta.validation.Valid;
@@ -23,7 +24,7 @@ public class TenantController {
     }
 
     @PostMapping
-    public Mono<ResponseEntity<TenantResponse>> createTenant(@Valid @RequestBody TenantRequest tenantRequest) {
+    public Mono<ResponseEntity<CreateTenantResponse>> createTenant(@Valid @RequestBody TenantRequest tenantRequest) {
         return tenantService.create(tenantRequest)
                 .map(tenantResponse -> ResponseEntity.status(HttpStatus.CREATED).body(tenantResponse));
     }
