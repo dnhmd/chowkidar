@@ -25,10 +25,12 @@ public class RouteEntity {
     public final Integer volumeLimit;
     @Column("window_size")
     public final Integer windowSize;
+    @Column("requires_idempotency")
+    public final Boolean requiresIdempotency;
     @Column("created_at")
     public final Instant createdAt;
 
-    public RouteEntity(UUID tenantId, String path, String upstreamUrl, Integer capacity, Integer refillRate, Integer volumeLimit, Integer windowSize) {
+    public RouteEntity(UUID tenantId, String path, String upstreamUrl, Integer capacity, Integer refillRate, Integer volumeLimit, Integer windowSize, Boolean requiresIdempotency) {
         this.id = null;
         this.tenantId = tenantId;
         this.path = path;
@@ -37,11 +39,12 @@ public class RouteEntity {
         this.refillRate = refillRate;
         this.volumeLimit = volumeLimit;
         this.windowSize = windowSize;
+        this.requiresIdempotency = requiresIdempotency;
         this.createdAt = null;
     }
 
     @PersistenceCreator
-    public RouteEntity(UUID id, UUID tenantId, String path, String upstreamUrl, Integer capacity, Integer refillRate, Integer volumeLimit, Integer windowSize, Instant createdAt) {
+    public RouteEntity(UUID id, UUID tenantId, String path, String upstreamUrl, Integer capacity, Integer refillRate, Integer volumeLimit, Integer windowSize, Boolean requiresIdempotency, Instant createdAt) {
         this.id = id;
         this.tenantId = tenantId;
         this.path = path;
@@ -50,6 +53,7 @@ public class RouteEntity {
         this.refillRate = refillRate;
         this.volumeLimit = volumeLimit;
         this.windowSize = windowSize;
+        this.requiresIdempotency = requiresIdempotency;
         this.createdAt = createdAt;
     }
 }

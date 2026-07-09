@@ -13,7 +13,8 @@ public class RouteMapper {
                 entity.capacity,
                 entity.refillRate,
                 entity.volumeLimit,
-                entity.windowSize
+                entity.windowSize,
+                entity.requiresIdempotency
         );
     }
 }
