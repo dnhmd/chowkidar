@@ -2,8 +2,9 @@ package com.chowkidar.gateway.management.dto.response;
 
 import java.util.UUID;
 
-public record TenantResponse(
+public record CreateTenantResponse(
         UUID id,
-        String name
+        String name,
+        String apiKey
 ) {
 }
