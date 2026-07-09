@@ -6,6 +6,7 @@ import com.chowkidar.gateway.persistence.mappers.RouteMapper;
 import com.chowkidar.gateway.persistence.mappers.TenantMapper;
 import com.chowkidar.gateway.persistence.repositories.RouteRepository;
 import com.chowkidar.gateway.persistence.repositories.TenantRepository;
+import com.chowkidar.gateway.security.HmacUtils;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
@@ -26,6 +27,7 @@ public class ContextService {
     private final CircuitBreaker postgresCircuitBreaker;
 
     private final long cacheTtlMs;
+    private final String hmacSecret;
 
     private final ConcurrentHashMap<String, CachedContext<TenantContext>> cache = new ConcurrentHashMap<>();
 
@@ -33,24 +35,27 @@ public class ContextService {
             TenantRepository tenantRepository,
             RouteRepository routeRepository,
             CircuitBreakerRegistry circuitBreakerRegistry,
-            @Value("${chowkidar.cache.ttl-ms:30000}") long cacheTtlMs)
-    {
+            @Value("${chowkidar.cache.ttl-ms:30000}") long cacheTtlMs,
+            @Value("${chowkidar.security.hmac-secret:chowkidar-default-secret-change-in-production}") String hmacSecret
+    ) {
         this.tenantRepository = tenantRepository;
         this.routeRepository = routeRepository;
         this.postgresCircuitBreaker = circuitBreakerRegistry.circuitBreaker("postgres");
         this.cacheTtlMs = cacheTtlMs;
+        this.hmacSecret = hmacSecret;
     }
 
     public Mono<TenantContext> resolve(String apiKey) {
-        CachedContext<TenantContext> cached = cache.get(apiKey);
+        String apiKeyHash = HmacUtils.hash(apiKey, hmacSecret);
+        CachedContext<TenantContext> cached = cache.get(apiKeyHash);
 
         if (cached != null && !cached.isExpired()) {
             return Mono.just(cached.value());
         }
 
-        cache.remove(apiKey);
+        cache.remove(apiKeyHash);
 
-        return tenantRepository.findByApiKey(apiKey)
+        return tenantRepository.findByApiKeyHash(apiKeyHash)
                 .flatMap(tenantEntity -> {
                     Tenant tenant = TenantMapper.toContext(tenantEntity);
                     return routeRepository.findByTenantId(tenantEntity.id)
@@ -63,12 +68,12 @@ public class ContextService {
                         new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Database unavailable"))
                 .doOnNext(tenantContext -> {
                     long expiry = System.currentTimeMillis() + cacheTtlMs;
-                    cache.put(apiKey, new CachedContext<>(tenantContext, expiry));
+                    cache.put(apiKeyHash, new CachedContext<>(tenantContext, expiry));
                 });
     }
 
-    public void invalidate(String apiKey) {
-        cache.remove(apiKey);
+    public void invalidate(String apiKeyHash) {
+        cache.remove(apiKeyHash);
     }
 
     public record CachedContext<T>(T value, long expiryTime) {
