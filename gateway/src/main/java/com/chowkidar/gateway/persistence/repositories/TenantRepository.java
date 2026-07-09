@@ -7,5 +7,5 @@ import reactor.core.publisher.Mono;
 import java.util.UUID;
 
 public interface TenantRepository extends ReactiveCrudRepository<TenantEntity, UUID> {
-    Mono<TenantEntity> findByApiKey(String apiKey);
+    Mono<TenantEntity> findByApiKeyHash(String apiKey);
 }

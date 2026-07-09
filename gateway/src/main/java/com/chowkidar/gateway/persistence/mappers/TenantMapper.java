@@ -9,7 +9,7 @@ public class TenantMapper {
         return new Tenant(
                 entity.id,
                 entity.name,
-                entity.apiKey
+                entity.apiKeyHash
         );
     }
 }

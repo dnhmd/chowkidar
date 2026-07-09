@@ -14,23 +14,23 @@ public class TenantEntity {
     @Id
     public final UUID id;
     public final String name;
-    @Column("api_key")
-    public final String apiKey;
+    @Column("api_key_hash")
+    public final String apiKeyHash;
     @Column("created_at")
     public final Instant createdAt;
 
-    public TenantEntity(String name, String apiKey) {
+    public TenantEntity(String name, String apiKeyHash) {
         this.id = null;
         this.name = name;
-        this.apiKey = apiKey;
+        this.apiKeyHash = apiKeyHash;
         this.createdAt = null;
     }
 
     @PersistenceCreator
-    public TenantEntity(UUID id, String name, String apiKey, Instant createdAt) {
+    public TenantEntity(UUID id, String name, String apiKeyHash, Instant createdAt) {
         this.id = id;
         this.name = name;
-        this.apiKey = apiKey;
+        this.apiKeyHash = apiKeyHash;
         this.createdAt = createdAt;
     }
 }
