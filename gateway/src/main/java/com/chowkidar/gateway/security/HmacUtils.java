@@ -13,7 +13,6 @@ public class HmacUtils {
 
     public static String hash(String value, String secret) {
         try {
-
             byte[] hmacBytes = calcHmacSha256(value, secret);
             return bytesToHex(hmacBytes);
         } catch (Exception e) {
