@@ -275,8 +275,8 @@ Omitted parameters default to standard configurations upon route creation:
 
 ## Sprint History
 
-| Sprint | Focus | Status   |
-|---|---|----------|
-| Sprint 1 | Reactive filter architecture, token bucket and sliding window Lua scripts, distributed Redis caching, WebClient proxy routing. | Complete |
-| Sprint 2 | Centralized Configuration API, isolated per-route circuit breakers, local JVM fallback limiters, global data validation and uniform exception responses. | Complete |
-| Sprint 3 | Structured production logging, core Actuator metrics integration, end-to-end filter arrays, infrastructure failure testing, concurrent reactive benchmarking. | Planned  |
+| Sprint | Focus                                                                                                                                                                                                      | Status   |
+|---|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------|
+| Sprint 1 | Reactive filter architecture, token bucket and sliding window Lua scripts, distributed Redis caching, WebClient proxy routing.                                                                             | Complete |
+| Sprint 2 | Centralized Configuration API, isolated per-route circuit breakers, local JVM fallback limiters, global data validation and uniform exception responses.                                                   | Complete |
+| Sprint 3 | API key protection, Distributed idempotency, Structured production logging, core Actuator metrics integration, end-to-end filter arrays, infrastructure failure testing, concurrent reactive benchmarking. | Planned  |
