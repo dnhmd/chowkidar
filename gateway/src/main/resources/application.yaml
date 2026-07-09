@@ -36,6 +36,9 @@ server:
 chowkidar:
   cache:
     ttl-ms: 30000
+  idempotency:
+    ttl-minutes: 30
+    lock-ttl-seconds: 30
   rate-limit:
     default-capacity: 100
     default-refill-rate: 10

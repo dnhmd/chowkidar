@@ -19,7 +19,7 @@ import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
 @Component
-@Order(3)
+@Order(4)
 public class ProxyFilter implements WebFilter {
 
     private final WebClient webClient;
