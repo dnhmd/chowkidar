@@ -124,6 +124,18 @@ public class GatewayIntegrationTests {
     }
 
     @Test
+    void shouldNotCreateNewTenantWithoutNameField() {
+        Map<String, String> requestBody = Map.of();
+
+        webTestClient.post()
+                .uri("/management/tenants")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(requestBody)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
     void shouldCreateNewRouteSuccessfully() {
         Map<String, Object> customRoutePayload = Map.of(
                 "path", "/custom-endpoint",
@@ -145,6 +157,80 @@ public class GatewayIntegrationTests {
                 .jsonPath("$.path").isEqualTo("/custom-endpoint")
                 .jsonPath("$.capacity").isEqualTo(10)
                 .jsonPath("$.refillRate").isEqualTo(2);
+    }
+
+    @Test
+    void shouldNotCreateNewRouteWithBlankPath() {
+        Map<String, Object> customRoutePayload = Map.of(
+                "path", "",
+                "upstreamUrl", "http://127.0.0.1:8081",
+                "capacity", 10,
+                "refillRate", 2,
+                "volumeLimit", 500,
+                "windowSize", 30
+        );
+
+        webTestClient.post()
+                .uri("/management/tenants/{tenantId}/routes", this.validTenantId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(customRoutePayload)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void shouldNotCreateNewRouteWithBlankUpstreamUrl() {
+        Map<String, Object> customRoutePayload = Map.of(
+                "path", "/custom-endpoint",
+                "upstreamUrl", "",
+                "capacity", 10,
+                "refillRate", 2,
+                "volumeLimit", 500,
+                "windowSize", 30
+        );
+
+        webTestClient.post()
+                .uri("/management/tenants/{tenantId}/routes", this.validTenantId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(customRoutePayload)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void shouldNotCreateNewRouteWithoutPath() {
+        Map<String, Object> customRoutePayload = Map.of(
+                "upstreamUrl", "http://127.0.0.1:8081",
+                "capacity", 10,
+                "refillRate", 2,
+                "volumeLimit", 500,
+                "windowSize", 30
+        );
+
+        webTestClient.post()
+                .uri("/management/tenants/{tenantId}/routes", this.validTenantId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(customRoutePayload)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void shouldNotCreateNewRouteWithoutUpstreamUrl() {
+        Map<String, Object> customRoutePayload = Map.of(
+                "path", "/custom-endpoint",
+                "capacity", 10,
+                "refillRate", 2,
+                "volumeLimit", 500,
+                "windowSize", 30
+        );
+
+        webTestClient.post()
+                .uri("/management/tenants/{tenantId}/routes", this.validTenantId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(customRoutePayload)
+                .exchange()
+                .expectStatus().isBadRequest();
     }
 
     @Test
