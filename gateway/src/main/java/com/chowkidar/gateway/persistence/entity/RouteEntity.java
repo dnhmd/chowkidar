@@ -39,7 +39,7 @@ public class RouteEntity {
         this.refillRate = refillRate;
         this.volumeLimit = volumeLimit;
         this.windowSize = windowSize;
-        this.requiresIdempotency = requiresIdempotency;
+        this.requiresIdempotency = false;
         this.createdAt = null;
     }
 

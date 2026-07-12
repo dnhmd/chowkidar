@@ -61,7 +61,7 @@ public class RouteService {
                             createRouteRequest.refillRate() != null ? createRouteRequest.refillRate() : defaultRefillRate,
                             createRouteRequest.volumeLimit() != null ? createRouteRequest.volumeLimit() : defaultVolumeLimit,
                             createRouteRequest.windowSize() != null ? createRouteRequest.windowSize() : defaultWindowSize,
-                            createRouteRequest.requiresIdempotency()
+                            createRouteRequest.requiresIdempotency() != null ? createRouteRequest.requiresIdempotency(): false
                     ))
                             .map(RouteMapper::toContext)
                             .map(route -> new RouteResponse(
