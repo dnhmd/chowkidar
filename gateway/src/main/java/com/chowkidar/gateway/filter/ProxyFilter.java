@@ -32,7 +32,7 @@ public class ProxyFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        if (GatewayPaths.isManagementPath(exchange.getRequest().getURI().getPath()))
+        if (GatewayPaths.shouldBypassFilters(exchange.getRequest().getURI().getPath()))
             return chain.filter(exchange);
         return Mono.deferContextual(contextView -> {
             Route matchedRoute = contextView.getOrEmpty(Route.class)

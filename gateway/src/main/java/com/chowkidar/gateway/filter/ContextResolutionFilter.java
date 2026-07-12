@@ -24,7 +24,7 @@ public class ContextResolutionFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        if (GatewayPaths.isManagementPath(exchange.getRequest().getURI().getPath()))
+        if (GatewayPaths.shouldBypassFilters(exchange.getRequest().getURI().getPath()))
             return chain.filter(exchange);
 
         String apiKey = exchange.getRequest().getHeaders().getFirst("X-API-Key");

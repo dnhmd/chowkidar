@@ -43,7 +43,7 @@ public class RateLimiterFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        if (GatewayPaths.isManagementPath(exchange.getRequest().getURI().getPath()))
+        if (GatewayPaths.shouldBypassFilters(exchange.getRequest().getURI().getPath()))
             return chain.filter(exchange);
 
         long startTime = System.currentTimeMillis();

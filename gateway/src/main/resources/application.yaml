@@ -74,3 +74,17 @@ resilience4j:
         sliding-window-type: COUNT_BASED
         slow-call-rate-threshold: 80
         slow-call-duration-threshold: 5s
+
+# Actuator Configurations
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics, circuitbreakers
+  endpoint:
+    health:
+      show-details: always
+  health:
+    circuitbreakers:
+      enabled: true
