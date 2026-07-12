@@ -66,6 +66,8 @@ public class ContextService {
                 .transformDeferred(CircuitBreakerOperator.of(postgresCircuitBreaker))
                 .onErrorMap(CallNotPermittedException.class, ex ->
                         new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Database unavailable"))
+                .onErrorMap(ex -> !(ex instanceof ResponseStatusException), ex ->
+                        new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Database unavailable"))
                 .doOnNext(tenantContext -> {
                     long expiry = System.currentTimeMillis() + cacheTtlMs;
                     cache.put(apiKeyHash, new CachedContext<>(tenantContext, expiry));

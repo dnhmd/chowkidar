@@ -59,6 +59,8 @@ public class ProxyFilter implements WebFilter {
                     })
                     .transformDeferred(CircuitBreakerOperator.of(upstreamCircuitBreaker))
                     .onErrorMap(CallNotPermittedException.class, ex ->
+                            new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Upstream service unavailable"))
+                    .onErrorMap(ex -> !(ex instanceof ResponseStatusException), ex ->
                             new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Upstream service unavailable"));
         });
     }
