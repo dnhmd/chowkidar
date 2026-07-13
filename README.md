@@ -62,9 +62,9 @@ Every request flows through a non-blocking, reactive filter chain that handles t
 
 - **Secure Key Hashing at Rest:** Tenant API keys are safeguarded using HMAC-SHA256 calculations against a protected environment secret. Raw access tokens are revealed once on initialization and never written to the data layer. Standard random-salted hashing patterns like BCrypt were explicitly bypassed because they break the deterministic string lookups required for high-speed routing filters.
 
-- **End-to-End Reactive Lifecycle:** he entire gateway utilizes Spring WebFlux, R2DBC database configurations, and `ReactiveRedisTemplate` wrappers. Thread blocking is completely eliminated from the entry line to the outbound proxy step, and telemetry pipelines fire inside a decoupled `doFinally` event loop block after client data streams close.
+- **End-to-End Reactive Lifecycle:** The entire gateway utilizes Spring WebFlux, R2DBC database configurations, and `ReactiveRedisTemplate` wrappers. Thread blocking is completely eliminated from the entry line to the outbound proxy step, and telemetry pipelines fire inside a decoupled `doFinally` event loop block after client data streams close.
 
-- **Rigorous Integration and Failure Testing:** he core test array features 14 end-to-end integration setups and 3 real-time infrastructure failure scripts utilizing Testcontainers. The test cases programmatically drop Postgres or Redis nodes mid-execution to verify that local in-process fallbacks and circuit breaker state changes trigger seamlessly.
+- **Rigorous Integration and Failure Testing:** The core test array features 14 end-to-end integration setups and 3 real-time infrastructure failure scripts utilizing Testcontainers. The test cases programmatically drop Postgres or Redis nodes mid-execution to verify that local in-process fallbacks and circuit breaker state changes trigger seamlessly.
 
 ---
 
