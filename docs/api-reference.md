@@ -262,8 +262,6 @@ Toggles active idempotency verification checks on or off for a chosen path. When
 
 **Response (200 OK)**: Returns the fully updated route data model object.
 
----
-
 ### Delete Route
 
 ```
