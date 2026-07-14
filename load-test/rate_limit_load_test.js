@@ -1,10 +1,13 @@
 import http from 'k6/http';
-import { check, sleep } from 'k6';
+import { check } from 'k6';
 
 export const options = {
-    vus: 10,    // 10 virtual users firing simultaneously
-    iterations: 20,  // total 20 requests across all VUs
-                    // with capacity 5, we expect ~15 to be 429
+    vus: 100,         // 100 concurrent attackers/users
+    duration: '1m',   // Flooding for a full minute
+    thresholds: {
+        // Ensure the rate limiter itself doesn't crash the gateway with 500 errors
+        http_req_failed: ['rate<0.01'],
+    }
 };
 
 export default function() {
@@ -13,9 +16,7 @@ export default function() {
     });
 
     check(res, {
-        'either allowed or rate limited': (r) =>
-            r.status === 200 || r.status === 429,
-        'rate limit headers present': (r) =>
-            r.headers['Ratelimit-Limit'] !== undefined,
+        'responded with 200 or 429': (r) => r.status === 200 || r.status === 429,
+        'rate limit headers present': (r) => r.headers['Ratelimit-Limit'] !== undefined,
     });
 }
