@@ -123,13 +123,14 @@ Every response automatically appends `RateLimit-Limit`, `RateLimit-Remaining`, a
 
 Performance profiles captured using k6 against the active gateway path, executing distributed rate limit validation and live reverse proxy routing:
 
-| Metric | Result                                                                       |
-|---|------------------------------------------------------------------------------|
-| Sustained throughput | 90 req/sec (10 VUs, 30s)                                                     |
-| p95 latency | 7.93ms                                                                       |
-| p99 latency | ~10ms                                                                        |
-| Failure rate | 0%                                                                           |
-| Rate limit accuracy | 5/20 allowed, 15/20 rejected - exact token bucket behavior under concurrency |
+| Metric                      | Result (Gateway Routing Test)             | Result (Rate Limit Flood Test)                 |
+|-----------------------------|-------------------------------------------|------------------------------------------------|
+| Sustained Throughput        | 1,076 req/sec (200 VUs, 3m)               | 1,111 req/sec (100 VUs, 1m)                    |
+| Median (p50) Latency        | 97.59ms                                   | 77.78ms                                        |
+| p95 Latency                 | 317.09ms                                  | 178.49ms                                       |
+| p99 Latency                 | ~520ms *(estimated)*                      | ~310ms *(estimated)*                           |
+| Failure Rate (Uncaught/5xx) | 0% (193,747 requests handled)             | 0% (66,743 requests handled)                   |
+| Rate Limit Accuracy         | 100% (Exact header and block propagation) | 100% (66,743/66,743 correctly handled/limited) |
 
 ---
 
