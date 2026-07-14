@@ -123,14 +123,21 @@ Every response automatically appends `RateLimit-Limit`, `RateLimit-Remaining`, a
 
 Performance profiles captured using k6 against the active gateway path, executing distributed rate limit validation and live reverse proxy routing:
 
-| Metric                      | Result (Gateway Routing Test)             | Result (Rate Limit Flood Test)                 |
-|-----------------------------|-------------------------------------------|------------------------------------------------|
-| Sustained Throughput        | 1,076 req/sec (200 VUs, 3m)               | 1,111 req/sec (100 VUs, 1m)                    |
-| Median (p50) Latency        | 97.59ms                                   | 77.78ms                                        |
-| p95 Latency                 | 317.09ms                                  | 178.49ms                                       |
-| p99 Latency                 | ~520ms *(estimated)*                      | ~310ms *(estimated)*                           |
-| Failure Rate (Uncaught/5xx) | 0% (193,747 requests handled)             | 0% (66,743 requests handled)                   |
-| Rate Limit Accuracy         | 100% (Exact header and block propagation) | 100% (66,743/66,743 correctly handled/limited) |
+| Metric                      | Result (Gateway Routing Test)                         | Result (Rate Limit Flood Test)                 |
+|-----------------------------|-------------------------------------------------------|------------------------------------------------|
+| Sustained Throughput        | 1,160.13 req/sec (200 VUs, 3m)                           | 1,118.70 req/sec (100 VUs, 1m)                    |
+| Total Requests Processed        | 208,732                                               | 67,159                                        |
+| Minimum Latency        | 1.28ms                                               | 3.54ms                                        |
+| Average Latency        | 110.93ms                                               | 89.02ms                                        |
+| Median (p50) Latency        | 95.19ms                                               | 67.12ms                                        |
+| p90 Latency        | 215.39ms                                               | 159.12ms                                        |
+| p95 Latency                 | 276.98ms                                              | 207.26ms                                       |
+| p99 Latency                 | 384.19ms                                  | 365.10ms                           |
+| Maximum Latency                 | 1.03s                                  | 806.17ms                           |
+| Failure Rate (Uncaught/5xx) | 0.00% (0 out of 208,732)                         | 0.00% (0 out of 67,159)                   |
+| Verification Checks         | 100% Passed (417,464 / 417,464 checks) | 100% Passed (134,318 / 134,318 checks) |
+
+> All tests executed on a single WSL2 development machine with the gateway, Redis, PostgreSQL, and the upstream echo server sharing the same host CPU and memory. Production deployment with isolated infrastructure would yield significantly higher throughput and lower tail latency.
 
 ---
 
