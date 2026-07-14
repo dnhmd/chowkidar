@@ -152,9 +152,3 @@ Granular breakdown logs detailing development milestones, infrastructure discove
 | Sprint 2 | Centralized Configuration API, isolated per-route circuit breakers, local JVM fallback limiters, global data validation and uniform exception responses. | Complete |
 | Sprint 3 | HMAC API key hashing, distributed idempotency filters, structured logging layouts, Actuator monitoring endpoints, Testcontainers integration testing, k6 performance validation. | Complete |
 | Sprint 4 | Real-time metric streaming via SSE, frontend observability dashboard, zero-downtime key rotation pipelines, live production deployments. | In Progress |
-
----
-
-## Live Demo
-
-System provisioning is currently underway. Target URLs and live application endpoints will be updated here as soon as the Sprint 4 pipeline tasks conclude.
