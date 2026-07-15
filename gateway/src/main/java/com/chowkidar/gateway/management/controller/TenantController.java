@@ -1,7 +1,7 @@
 package com.chowkidar.gateway.management.controller;
 
 import com.chowkidar.gateway.management.dto.request.TenantRequest;
-import com.chowkidar.gateway.management.dto.response.CreateTenantResponse;
+import com.chowkidar.gateway.management.dto.response.TenantResponseWithApiKey;
 import com.chowkidar.gateway.management.dto.response.TenantResponse;
 import com.chowkidar.gateway.management.service.TenantService;
 import jakarta.validation.Valid;
@@ -24,7 +24,7 @@ public class TenantController {
     }
 
     @PostMapping
-    public Mono<ResponseEntity<CreateTenantResponse>> createTenant(@Valid @RequestBody TenantRequest tenantRequest) {
+    public Mono<ResponseEntity<TenantResponseWithApiKey>> createTenant(@Valid @RequestBody TenantRequest tenantRequest) {
         return tenantService.create(tenantRequest)
                 .map(tenantResponse -> ResponseEntity.status(HttpStatus.CREATED).body(tenantResponse));
     }
@@ -43,6 +43,12 @@ public class TenantController {
     @PatchMapping("/{id}")
     public Mono<ResponseEntity<TenantResponse>> updateTenant(@PathVariable("id") UUID id, @Valid @RequestBody TenantRequest tenantRequest) {
         return tenantService.update(id, tenantRequest)
+                .map(tenantResponse -> ResponseEntity.status(HttpStatus.OK).body(tenantResponse));
+    }
+
+    @PostMapping("/{id}/rotate-key")
+    public Mono<ResponseEntity<TenantResponseWithApiKey>> rotateKey(@PathVariable("id") UUID id) {
+        return tenantService.rotateApiKey(id)
                 .map(tenantResponse -> ResponseEntity.status(HttpStatus.OK).body(tenantResponse));
     }
 
