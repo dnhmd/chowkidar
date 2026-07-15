@@ -61,6 +61,8 @@ Every request flows through a non-blocking, reactive filter chain that handles t
 - **Isolated Per-Route Circuit Breakers:** Rather than utilizing a single broad circuit breaker, every route maps to its own distinct `upstream-{routeId}` Resilience4j profile. This prevents an outage or performance dip in one tenant's architecture from spilling over and cutting traffic lines for neighboring setups.
 
 - **Secure Key Hashing at Rest:** Tenant API keys are safeguarded using HMAC-SHA256 calculations against a protected environment secret. Raw access tokens are revealed once on initialization and never written to the data layer. Standard random-salted hashing patterns like BCrypt were explicitly bypassed because they break the deterministic string lookups required for high-speed routing filters.
+- 
+- **API Key Rotation with Grace Period Enforcement:** Tenant keys can be rotated without causing immediate service disruption. The previous key remains valid for a configurable grace period, giving downstream callers time to propagate the new credential. Requests authenticating with a deprecated key receive an `X-Api-Key-Deprecated: true` response header as an explicit migration signal. Tenant accounts can also be explicitly revoked, blocking all access regardless of which key is presented.
 
 - **End-to-End Reactive Lifecycle:** The entire gateway utilizes Spring WebFlux, R2DBC database configurations, and `ReactiveRedisTemplate` wrappers. Thread blocking is completely eliminated from the entry line to the outbound proxy step, and telemetry pipelines fire inside a decoupled `doFinally` event loop block after client data streams close.
 
@@ -77,7 +79,7 @@ git clone https://github.com/dnhmd/chowkidar.git
 cd chowkidar
 docker compose up -d
 cd gateway && ./mvnw spring-boot:run
-python3 echo_server.py   # test upstream on :8081
+go run echo_server.go   # test upstream on :8081
 ```
 
 **Create a tenant:**
@@ -154,9 +156,9 @@ Performance profiles captured using k6 against the active gateway path, executin
 
 Granular breakdown logs detailing development milestones, infrastructure discoveries, and framework iterations reside within `/sprints`.
 
-| Sprint | Focus | Status |
-|---|---|---|
-| Sprint 1 | Reactive filter architecture, Token Bucket and Sliding Window Lua scripts, distributed Redis caching, WebClient proxy routing. | Complete |
-| Sprint 2 | Centralized Configuration API, isolated per-route circuit breakers, local JVM fallback limiters, global data validation and uniform exception responses. | Complete |
+| Sprint   | Focus                                                                                                                                                                            | Status   |
+|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------|
+| Sprint 1 | Reactive filter architecture, Token Bucket and Sliding Window Lua scripts, distributed Redis caching, WebClient proxy routing.                                                   | Complete |
+| Sprint 2 | Centralized Configuration API, isolated per-route circuit breakers, local JVM fallback limiters, global data validation and uniform exception responses.                         | Complete |
 | Sprint 3 | HMAC API key hashing, distributed idempotency filters, structured logging layouts, Actuator monitoring endpoints, Testcontainers integration testing, k6 performance validation. | Complete |
-| Sprint 4 | Real-time metric streaming via SSE, frontend observability dashboard, zero-downtime key rotation pipelines, live production deployments. | In Progress |
+| Sprint 4 | API key rotation with grace period enforcement, tenant revocation, structured logging across filter chain and service layer.                                                     | Complete |
