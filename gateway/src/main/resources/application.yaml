@@ -46,6 +46,7 @@ chowkidar:
     default-window-size: 3600
   security:
     hmac-secret: ${HMAC_SECRET:chowkidar-default-secret-change-in-production}
+    api-key-grace-period-hours: 12
 
 # Logging Configurations
 logging:
