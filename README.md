@@ -156,9 +156,10 @@ Performance profiles captured using k6 against the active gateway path, executin
 
 Granular breakdown logs detailing development milestones, infrastructure discoveries, and framework iterations reside within `/sprints`.
 
-| Sprint   | Focus                                                                                                                                                                            | Status   |
-|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------|
-| Sprint 1 | Reactive filter architecture, Token Bucket and Sliding Window Lua scripts, distributed Redis caching, WebClient proxy routing.                                                   | Complete |
-| Sprint 2 | Centralized Configuration API, isolated per-route circuit breakers, local JVM fallback limiters, global data validation and uniform exception responses.                         | Complete |
-| Sprint 3 | HMAC API key hashing, distributed idempotency filters, structured logging layouts, Actuator monitoring endpoints, Testcontainers integration testing, k6 performance validation. | Complete |
-| Sprint 4 | API key rotation with grace period enforcement, tenant revocation, structured logging across filter chain and service layer.                                                     | Complete |
+| Sprint   | Focus                                                                                                                                                                            | Status      |
+|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------|
+| Sprint 1 | Reactive filter architecture, Token Bucket and Sliding Window Lua scripts, distributed Redis caching, WebClient proxy routing.                                                   | Complete    |
+| Sprint 2 | Centralized Configuration API, isolated per-route circuit breakers, local JVM fallback limiters, global data validation and uniform exception responses.                         | Complete    |
+| Sprint 3 | HMAC API key hashing, distributed idempotency filters, structured logging layouts, Actuator monitoring endpoints, Testcontainers integration testing, k6 performance validation. | Complete    |
+| Sprint 4 | API key rotation with grace period enforcement, tenant revocation, structured logging across filter chain and service layer.                                                     | Complete    |
+| Sprint 5 | Timeout policies, fallback URLs, upstream health checks, slow request detection, IP allowlist/blocklist, integration test coverage.                                              | In Progress |
