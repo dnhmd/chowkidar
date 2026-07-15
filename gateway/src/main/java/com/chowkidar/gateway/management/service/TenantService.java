@@ -10,6 +10,8 @@ import com.chowkidar.gateway.persistence.mappers.TenantMapper;
 import com.chowkidar.gateway.persistence.repositories.TenantApiKeysRepository;
 import com.chowkidar.gateway.persistence.repositories.TenantRepository;
 import com.chowkidar.gateway.security.HmacUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -21,8 +23,12 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
+import static net.logstash.logback.argument.StructuredArguments.keyValue;
+
 @Service
 public class TenantService {
+
+    private static final Logger log = LoggerFactory.getLogger(TenantService.class);
 
     private final TenantRepository tenantRepository;
     private final TenantApiKeysRepository tenantApiKeysRepository;
@@ -48,6 +54,9 @@ public class TenantService {
         String apiKey = UUID.randomUUID().toString().replace("-", "");
         String apiKeyHash = HmacUtils.hash(apiKey, hmacSecret);
         return tenantRepository.save(new TenantEntity(tenantRequest.name(), apiKeyHash))
+                .doOnNext(tenantEntity -> log.info("TenantService | event=tenant_created",
+                        keyValue("tenantId", tenantEntity.id)
+                ))
                 .map(TenantMapper::toContext)
                 .map(tenant -> new TenantResponseWithApiKey(
                         tenant.id(),
@@ -121,7 +130,12 @@ public class TenantService {
 
                     return tenantApiKeysRepository.save(tenantApiKeysEntity)
                             .then(tenantRepository.save(updatedTenant))
-                            .doOnNext(savedtenantEntity -> contextService.invalidate(oldApiKeyHash));
+                            .doOnNext(savedTenantEntity -> {
+                                contextService.invalidate(oldApiKeyHash);
+                                log.info("TenantService | event=key_rotated",
+                                        keyValue("tenantId", savedTenantEntity.id)
+                                );
+                            });
                 })
                 .map(TenantMapper::toContext)
                 .map(tenant -> new TenantResponseWithApiKey(
@@ -134,7 +148,12 @@ public class TenantService {
     public Mono<Void> delete(UUID id) {
         return tenantRepository.findById(id)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + id)))
-                .doOnNext(tenantEntity -> contextService.invalidate(tenantEntity.apiKeyHash))
+                .doOnNext(tenantEntity -> {
+                    contextService.invalidate(tenantEntity.apiKeyHash);
+                    log.info("TenantService | event=tenant_deleted",
+                            keyValue("tenantId", tenantEntity.id)
+                    );
+                })
                 .flatMap(tenantRepository::delete);
     }
 }

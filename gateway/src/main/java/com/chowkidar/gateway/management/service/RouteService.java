@@ -10,6 +10,8 @@ import com.chowkidar.gateway.persistence.entity.RouteEntity;
 import com.chowkidar.gateway.persistence.mappers.RouteMapper;
 import com.chowkidar.gateway.persistence.repositories.RouteRepository;
 import com.chowkidar.gateway.persistence.repositories.TenantRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -19,8 +21,12 @@ import reactor.core.publisher.Mono;
 
 import java.util.UUID;
 
+import static net.logstash.logback.argument.StructuredArguments.keyValue;
+
 @Service
 public class RouteService {
+
+    private static final Logger log = LoggerFactory.getLogger(RouteService.class);
 
     private final TenantRepository tenantRepository;
     private final RouteRepository routeRepository;
@@ -52,30 +58,35 @@ public class RouteService {
     public Mono<RouteResponse> create(UUID tenantId, CreateRouteRequest createRouteRequest) {
         return tenantRepository.findById(tenantId)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
-                .flatMap(tenantEntity -> {
-                    return routeRepository.save(new RouteEntity(
-                            tenantId,
-                            createRouteRequest.path(),
-                            createRouteRequest.upstreamUrl(),
-                            createRouteRequest.capacity() != null ? createRouteRequest.capacity() : defaultCapacity,
-                            createRouteRequest.refillRate() != null ? createRouteRequest.refillRate() : defaultRefillRate,
-                            createRouteRequest.volumeLimit() != null ? createRouteRequest.volumeLimit() : defaultVolumeLimit,
-                            createRouteRequest.windowSize() != null ? createRouteRequest.windowSize() : defaultWindowSize,
-                            createRouteRequest.requiresIdempotency() != null ? createRouteRequest.requiresIdempotency(): false
-                    ))
-                            .map(RouteMapper::toContext)
-                            .map(route -> new RouteResponse(
-                                    route.id(),
-                                    route.path(),
-                                    route.upstreamUrl(),
-                                    route.capacity(),
-                                    route.refillRate(),
-                                    route.volumeLimit(),
-                                    route.windowSize(),
-                                    route.requiresIdempotency()
-                            ))
-                            .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKeyHash));
-                });
+                .flatMap(tenantEntity -> routeRepository.save(new RouteEntity(
+                                tenantId,
+                                createRouteRequest.path(),
+                                createRouteRequest.upstreamUrl(),
+                                createRouteRequest.capacity() != null ? createRouteRequest.capacity() : defaultCapacity,
+                                createRouteRequest.refillRate() != null ? createRouteRequest.refillRate() : defaultRefillRate,
+                                createRouteRequest.volumeLimit() != null ? createRouteRequest.volumeLimit() : defaultVolumeLimit,
+                                createRouteRequest.windowSize() != null ? createRouteRequest.windowSize() : defaultWindowSize,
+                                createRouteRequest.requiresIdempotency() != null ? createRouteRequest.requiresIdempotency() : false
+                        ))
+                        .map(RouteMapper::toContext)
+                        .map(route -> new RouteResponse(
+                                route.id(),
+                                route.path(),
+                                route.upstreamUrl(),
+                                route.capacity(),
+                                route.refillRate(),
+                                route.volumeLimit(),
+                                route.windowSize(),
+                                route.requiresIdempotency()
+                        ))
+                        .doOnNext(routeResponse -> {
+                            contextService.invalidate(tenantEntity.apiKeyHash);
+                            log.info("RouteService | event=route_created",
+                                    keyValue("tenantId", tenantId),
+                                    keyValue("routeId", routeResponse.id()),
+                                    keyValue("path", routeResponse.path())
+                            );
+                        }));
     }
 
     public Mono<RouteResponse> getById(UUID tenantId, UUID routeId) {
@@ -225,11 +236,16 @@ public class RouteService {
     public Mono<Void> delete(UUID tenantId, UUID routeId) {
         return tenantRepository.findById(tenantId)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
-                .flatMap(tenantEntity -> {
-                    return routeRepository.findById(routeId)
-                            .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))
-                            .doOnNext(routeEntity -> contextService.invalidate(tenantEntity.apiKeyHash))
-                            .flatMap(routeRepository::delete);
-                });
+                .flatMap(tenantEntity -> routeRepository.findById(routeId)
+                        .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantId)))
+                        .flatMap(routeEntity -> routeRepository.delete(routeEntity)
+                                .then(Mono.fromRunnable(() -> {
+                                    contextService.invalidate(tenantEntity.apiKeyHash);
+                                    log.info("RouteService | event=route_deleted",
+                                            keyValue("tenantId", tenantId),
+                                            keyValue("routeId", routeId)
+                                    );
+                                }))
+                        ));
     }
 }

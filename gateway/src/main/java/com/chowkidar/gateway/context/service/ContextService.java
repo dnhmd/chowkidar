@@ -13,6 +13,8 @@ import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.github.resilience4j.reactor.circuitbreaker.operator.CircuitBreakerOperator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -22,8 +24,12 @@ import reactor.core.publisher.Mono;
 import java.time.Instant;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static net.logstash.logback.argument.StructuredArguments.keyValue;
+
 @Service
 public class ContextService {
+
+    private static final Logger log = LoggerFactory.getLogger(ContextService.class);
 
     private final TenantRepository tenantRepository;
     private final RouteRepository routeRepository;
@@ -56,15 +62,27 @@ public class ContextService {
         CachedContext<TenantContext> cached = cache.get(apiKeyHash);
 
         if (cached != null && !cached.isExpired()) {
+            log.debug("ContextService | event=cache_hit",
+                    keyValue("tenantId", cached.value().tenant().id()),
+                    keyValue("apiKeyHash", getPartialHash(apiKeyHash))
+            );
             return Mono.just(cached.value());
         }
 
         cache.remove(apiKeyHash);
 
+        log.debug("ContextService | event=cache_miss",
+                keyValue("apiKeyHash", getPartialHash(apiKeyHash))
+        );
+
         return resolveFromDatabase(apiKeyHash)
                 .transformDeferred(CircuitBreakerOperator.of(postgresCircuitBreaker))
-                .onErrorMap(CallNotPermittedException.class, ex ->
-                        new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Database unavailable"))
+                .onErrorResume(CallNotPermittedException.class, ex -> {
+                    log.warn("ContextService | event=circuit_breaker_open",
+                            keyValue("circuitBreaker", "postgres")
+                    );
+                    return Mono.error(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Database unavailable"));
+                })
                 .onErrorMap(ex -> !(ex instanceof ResponseStatusException), ex ->
                         new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Database unavailable"))
                 .doOnNext(tenantContext -> {
@@ -93,7 +111,10 @@ public class ContextService {
                             return tenantRepository.findById(tenantApiKeysEntity.tenantId)
                                     .flatMap(tenantEntity ->  {
                                         if ("ACTIVE".equalsIgnoreCase(tenantEntity.status)) {
-                                            return buildTenantContext(tenantEntity, true);
+                                            return buildTenantContext(tenantEntity, true)
+                                                    .doOnNext(context -> log.warn("ContextService | event=deprecated_key_resolution",
+                                                            keyValue("tenantId", tenantEntity.id)
+                                                    ));
                                         } else if ("REVOKED".equalsIgnoreCase(tenantEntity.status)) {
                                             return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN, "Tenant account is revoked"));
                                         } else {
@@ -111,6 +132,13 @@ public class ContextService {
                 .map(RouteMapper::toContext)
                 .collectList()
                 .map(routes -> new TenantContext(tenant, routes, isDeprecated));
+    }
+
+    private String getPartialHash(String fullHash) {
+        if (fullHash == null || fullHash.length() < 6) {
+            return "unknown";
+        }
+        return fullHash.substring(0, 6) + "...";
     }
 
     public void invalidate(String apiKeyHash) {
