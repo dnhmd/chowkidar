@@ -14,8 +14,8 @@ Administrative configuration endpoints do not require authentication headers.
 
 Callers using a key that has been rotated but is still within its grace period will receive responses with an `X-Api-Key-Deprecated: true` header. This signals that the key will stop working after the grace window closes and a new key should be provisioned immediately.
 
- Header | Description |
-|---|---|
+| Header                 | Description                                                                                          |
+|------------------------|------------------------------------------------------------------------------------------------------|
 | `X-Api-Key-Deprecated` | Present and `true` when the request authenticated using a rotated key still within its grace period. |
 
 ---
