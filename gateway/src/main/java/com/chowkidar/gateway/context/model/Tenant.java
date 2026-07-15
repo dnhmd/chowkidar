@@ -5,6 +5,7 @@ import java.util.UUID;
 public record Tenant(
         UUID id,
         String name,
-        String apiKeyHash
+        String apiKeyHash,
+        String status
 ) {
 }
