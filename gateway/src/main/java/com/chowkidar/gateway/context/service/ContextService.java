@@ -2,9 +2,11 @@ package com.chowkidar.gateway.context.service;
 
 import com.chowkidar.gateway.context.model.Tenant;
 import com.chowkidar.gateway.context.model.TenantContext;
+import com.chowkidar.gateway.persistence.entity.TenantEntity;
 import com.chowkidar.gateway.persistence.mappers.RouteMapper;
 import com.chowkidar.gateway.persistence.mappers.TenantMapper;
 import com.chowkidar.gateway.persistence.repositories.RouteRepository;
+import com.chowkidar.gateway.persistence.repositories.TenantApiKeysRepository;
 import com.chowkidar.gateway.persistence.repositories.TenantRepository;
 import com.chowkidar.gateway.security.HmacUtils;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
@@ -17,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
+import java.time.Instant;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
@@ -24,6 +27,7 @@ public class ContextService {
 
     private final TenantRepository tenantRepository;
     private final RouteRepository routeRepository;
+    private final TenantApiKeysRepository tenantApiKeysRepository;
     private final CircuitBreaker postgresCircuitBreaker;
 
     private final long cacheTtlMs;
@@ -34,12 +38,14 @@ public class ContextService {
     public ContextService(
             TenantRepository tenantRepository,
             RouteRepository routeRepository,
+            TenantApiKeysRepository tenantApiKeysRepository,
             CircuitBreakerRegistry circuitBreakerRegistry,
             @Value("${chowkidar.cache.ttl-ms:30000}") long cacheTtlMs,
             @Value("${chowkidar.security.hmac-secret:chowkidar-default-secret-change-in-production}") String hmacSecret
     ) {
         this.tenantRepository = tenantRepository;
         this.routeRepository = routeRepository;
+        this.tenantApiKeysRepository = tenantApiKeysRepository;
         this.postgresCircuitBreaker = circuitBreakerRegistry.circuitBreaker("postgres");
         this.cacheTtlMs = cacheTtlMs;
         this.hmacSecret = hmacSecret;
@@ -55,14 +61,7 @@ public class ContextService {
 
         cache.remove(apiKeyHash);
 
-        return tenantRepository.findByApiKeyHash(apiKeyHash)
-                .flatMap(tenantEntity -> {
-                    Tenant tenant = TenantMapper.toContext(tenantEntity);
-                    return routeRepository.findByTenantId(tenantEntity.id)
-                            .map(RouteMapper::toContext)
-                            .collectList()
-                            .map(routes -> new TenantContext(tenant,  routes));
-                })
+        return resolveFromDatabase(apiKeyHash)
                 .transformDeferred(CircuitBreakerOperator.of(postgresCircuitBreaker))
                 .onErrorMap(CallNotPermittedException.class, ex ->
                         new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Database unavailable"))
@@ -72,6 +71,46 @@ public class ContextService {
                     long expiry = System.currentTimeMillis() + cacheTtlMs;
                     cache.put(apiKeyHash, new CachedContext<>(tenantContext, expiry));
                 });
+    }
+
+    private Mono<TenantContext> resolveFromDatabase(String apiKeyHash) {
+        return tenantRepository.findByApiKeyHash(apiKeyHash)
+                .flatMap(tenantEntity -> {
+                    if ("ACTIVE".equalsIgnoreCase(tenantEntity.status)) {
+                        return buildTenantContext(tenantEntity, false);
+                    } else if ("REVOKED".equalsIgnoreCase(tenantEntity.status)) {
+                        return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN, "Tenant account is revoked"));
+                    } else {
+                        return Mono.empty();
+                    }
+                })
+                .switchIfEmpty(Mono.defer(() -> tenantApiKeysRepository.findByPreviousApiKeyHash(apiKeyHash)
+                        .flatMap(tenantApiKeysEntity -> {
+                            if (!tenantApiKeysEntity.previousKeyExpiresAt.isAfter(Instant.now())) {
+                                return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN, "API Key has expired"));
+                            }
+
+                            return tenantRepository.findById(tenantApiKeysEntity.tenantId)
+                                    .flatMap(tenantEntity ->  {
+                                        if ("ACTIVE".equalsIgnoreCase(tenantEntity.status)) {
+                                            return buildTenantContext(tenantEntity, true);
+                                        } else if ("REVOKED".equalsIgnoreCase(tenantEntity.status)) {
+                                            return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN, "Tenant account is revoked"));
+                                        } else {
+                                            return Mono.empty();
+                                        }
+                                    });
+                        })
+                ))
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid or expired API Key")));
+    }
+
+    private Mono<TenantContext> buildTenantContext(TenantEntity tenantEntity, Boolean isDeprecated) {
+        Tenant tenant = TenantMapper.toContext(tenantEntity);
+        return routeRepository.findByTenantId(tenantEntity.id)
+                .map(RouteMapper::toContext)
+                .collectList()
+                .map(routes -> new TenantContext(tenant, routes, isDeprecated));
     }
 
     public void invalidate(String apiKeyHash) {
