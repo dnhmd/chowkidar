@@ -61,7 +61,7 @@ Every request flows through a non-blocking, reactive filter chain that handles t
 - **Isolated Per-Route Circuit Breakers:** Rather than utilizing a single broad circuit breaker, every route maps to its own distinct `upstream-{routeId}` Resilience4j profile. This prevents an outage or performance dip in one tenant's architecture from spilling over and cutting traffic lines for neighboring setups.
 
 - **Secure Key Hashing at Rest:** Tenant API keys are safeguarded using HMAC-SHA256 calculations against a protected environment secret. Raw access tokens are revealed once on initialization and never written to the data layer. Standard random-salted hashing patterns like BCrypt were explicitly bypassed because they break the deterministic string lookups required for high-speed routing filters.
-- 
+
 - **API Key Rotation with Grace Period Enforcement:** Tenant keys can be rotated without causing immediate service disruption. The previous key remains valid for a configurable grace period, giving downstream callers time to propagate the new credential. Requests authenticating with a deprecated key receive an `X-Api-Key-Deprecated: true` response header as an explicit migration signal. Tenant accounts can also be explicitly revoked, blocking all access regardless of which key is presented.
 
 - **End-to-End Reactive Lifecycle:** The entire gateway utilizes Spring WebFlux, R2DBC database configurations, and `ReactiveRedisTemplate` wrappers. Thread blocking is completely eliminated from the entry line to the outbound proxy step, and telemetry pipelines fire inside a decoupled `doFinally` event loop block after client data streams close.
