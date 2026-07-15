@@ -16,6 +16,7 @@ public class TenantEntity {
     public final String name;
     @Column("api_key_hash")
     public final String apiKeyHash;
+    public final String status;
     @Column("created_at")
     public final Instant createdAt;
 
@@ -23,14 +24,16 @@ public class TenantEntity {
         this.id = null;
         this.name = name;
         this.apiKeyHash = apiKeyHash;
+        this.status = "ACTIVE";
         this.createdAt = null;
     }
 
     @PersistenceCreator
-    public TenantEntity(UUID id, String name, String apiKeyHash, Instant createdAt) {
+    public TenantEntity(UUID id, String name, String apiKeyHash, String status, Instant createdAt) {
         this.id = id;
         this.name = name;
         this.apiKeyHash = apiKeyHash;
+        this.status = status;
         this.createdAt = createdAt;
     }
 }

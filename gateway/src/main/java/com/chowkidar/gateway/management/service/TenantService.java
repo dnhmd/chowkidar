@@ -73,6 +73,7 @@ public class TenantService {
                                 tenantEntity.id,
                                 tenantRequest.name(),
                                 tenantEntity.apiKeyHash,
+                                tenantEntity.status,
                                 tenantEntity.createdAt
                         )
                 ))
