@@ -6,6 +6,8 @@ import com.chowkidar.gateway.context.model.Tenant;
 import com.chowkidar.gateway.context.model.TenantContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -27,10 +29,15 @@ import org.reactivestreams.Publisher;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.UUID;
+
+import static net.logstash.logback.argument.StructuredArguments.keyValue;
 
 @Component
 @Order(3)
 public class IdempotencyFilter implements WebFilter {
+
+    private static final Logger log = LoggerFactory.getLogger(IdempotencyFilter.class);
 
     private final ReactiveRedisTemplate<String, String> reactiveRedisTemplate;
     private final ObjectMapper objectMapper;
@@ -72,16 +79,22 @@ public class IdempotencyFilter implements WebFilter {
                     .orElseThrow(() -> new ResponseStatusException(
                             HttpStatus.INTERNAL_SERVER_ERROR, "Matched route missing"));
 
+            Tenant tenant = tenantContext.tenant();
+            String requestedPath = exchange.getRequest().getURI().getPath();
             String idempotencyKey = exchange.getRequest().getHeaders().getFirst("X-Idempotency-Key");
+
             if (idempotencyKey == null || idempotencyKey.isBlank()) {
                 if (matchedRoute.requiresIdempotency()) {
+                    log.warn("IdempotencyFilter | event=missing_idempotency_key",
+                            keyValue("tenantId", tenant.id()),
+                            keyValue("path", requestedPath)
+                    );
                     return Mono.error(new ResponseStatusException(
                             HttpStatus.BAD_REQUEST, "Idempotency key required for this route"));
                 }
                 return chain.filter(exchange);
             }
 
-            Tenant tenant = tenantContext.tenant();
             String redisKey = "idempotency:" + tenant.id() + ":" + idempotencyKey;
 
             return reactiveRedisTemplate.opsForValue()
@@ -90,7 +103,7 @@ public class IdempotencyFilter implements WebFilter {
                         if (acquired) {
                             return handleFirstRequest(exchange, chain, redisKey);
                         } else {
-                            return handleDuplicateRequest(exchange, redisKey);
+                            return handleDuplicateRequest(exchange, redisKey, tenant.id(), idempotencyKey);
                         }
                     });
         });
@@ -146,10 +159,14 @@ public class IdempotencyFilter implements WebFilter {
         return chain.filter(exchange.mutate().response(decoratedResponse).build());
     }
 
-    private Mono<Void> handleDuplicateRequest(ServerWebExchange exchange, String redisKey) {
+    private Mono<Void> handleDuplicateRequest(ServerWebExchange exchange, String redisKey, UUID tenantId, String idempotencyKey) {
         return reactiveRedisTemplate.opsForValue().get(redisKey)
                 .flatMap(cachedValue -> {
                     if ("PROCESSING".equals(cachedValue)) {
+                        log.warn("IdempotencyFilter | event=idempotency_conflict",
+                                keyValue("tenantId", tenantId),
+                                keyValue("idempotencyKey", idempotencyKey)
+                        );
                         return Mono.error(new ResponseStatusException(
                                 HttpStatus.CONFLICT, "Duplicate request in progress"));
                     }
@@ -158,6 +175,12 @@ public class IdempotencyFilter implements WebFilter {
                         JsonNode node = objectMapper.readTree(cachedValue);
                         int statusCode = node.get("statusCode").asInt();
                         String body = objectMapper.writeValueAsString(node.get("body"));
+
+                        log.debug("IdempotencyFilter | event=cache_hit_replay",
+                                keyValue("tenantId", tenantId),
+                                keyValue("idempotencyKey", idempotencyKey),
+                                keyValue("statusCode", statusCode)
+                        );
 
                         ServerHttpResponse response = exchange.getResponse();
                         response.setStatusCode(HttpStatus.valueOf(statusCode));

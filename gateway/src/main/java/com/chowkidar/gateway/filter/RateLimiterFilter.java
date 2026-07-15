@@ -6,7 +6,6 @@ import com.chowkidar.gateway.context.model.Tenant;
 import com.chowkidar.gateway.context.model.TenantContext;
 import com.chowkidar.gateway.ratelimit.limiter.RateLimiter;
 import com.chowkidar.gateway.ratelimit.model.RateLimitResult;
-import net.logstash.logback.argument.StructuredArguments;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -20,7 +19,7 @@ import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
-import java.time.Instant;
+import static net.logstash.logback.argument.StructuredArguments.keyValue;
 
 @Component
 @Order(2)
@@ -63,9 +62,15 @@ public class RateLimiterFilter implements WebFilter {
             Tenant tenant = tenantContext.tenant();
 
             Mono<RateLimitResult> tokenBucketCheck = tokenBucketLimiter.limit(tenant, matchedRoute)
-                    .onErrorResume(ex -> localRateLimiter.limit(tenant, matchedRoute));
+                    .onErrorResume(ex -> {
+                        logFallbackToLocalLimiter(tenant, matchedRoute, "TOKEN_BUCKET", ex);
+                        return localRateLimiter.limit(tenant, matchedRoute);
+                    });
             Mono<RateLimitResult> slidingWindowCheck = slidingWindowLimiter.limit(tenant, matchedRoute)
-                    .onErrorResume(ex -> localRateLimiter.limit(tenant, matchedRoute));
+                    .onErrorResume(ex -> {
+                        logFallbackToLocalLimiter(tenant, matchedRoute, "SLIDING_WINDOW", ex);
+                        return localRateLimiter.limit(tenant, matchedRoute);
+                    });
 
             return Mono.zip(tokenBucketCheck, slidingWindowCheck)
                     .flatMap(tuple -> {
@@ -73,7 +78,15 @@ public class RateLimiterFilter implements WebFilter {
                         RateLimitResult slidingWindowResult = tuple.getT2();
 
                         if (!tokenBucketResult.isAllowed() || !slidingWindowResult.isAllowed()) {
+                            boolean isTokenBucketFailure = !tokenBucketResult.isAllowed();
                             RateLimitResult primaryFailure = !tokenBucketResult.isAllowed() ? tokenBucketResult : slidingWindowResult;
+                            String failedLimiterType = isTokenBucketFailure ? "TOKEN_BUCKET" : "SLIDING_WINDOW";
+
+                            log.warn("RateLimiterFilter | event=rate_limit_denied",
+                                    keyValue("tenantId", tenant.id()),
+                                    keyValue("path", matchedRoute.path()),
+                                    keyValue("limiterType", failedLimiterType)
+                            );
 
                             populateHeaders(exchange.getResponse(), primaryFailure);
                             exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
@@ -87,16 +100,25 @@ public class RateLimiterFilter implements WebFilter {
                     })
                     .doFinally(signal -> {
                         long durationMs = System.currentTimeMillis() - startTime;
-                        log.info("Request Completed",
-                                    StructuredArguments.keyValue("tenantId", tenant.id()),
-                                    StructuredArguments.keyValue("path", requestedPath),
-                                StructuredArguments.keyValue("method", exchange.getRequest().getMethod().name()),
-                                    StructuredArguments.keyValue("status", exchange.getResponse().getStatusCode()),
-                                    StructuredArguments.keyValue("durationMs", durationMs),
-                                    StructuredArguments.keyValue("signal", signal.name())
-                                );
+                        log.info("RateLimiterFilter | event=request_completed",
+                                keyValue("tenantId", tenant.id()),
+                                keyValue("path", requestedPath),
+                                keyValue("method", exchange.getRequest().getMethod().name()),
+                                keyValue("status", exchange.getResponse().getStatusCode()),
+                                keyValue("durationMs", durationMs),
+                                keyValue("signal", signal.name())
+                        );
                     });
         });
+    }
+
+    private static void logFallbackToLocalLimiter(Tenant tenant, Route matchedRoute, String limiterType, Throwable ex) {
+        log.warn("RateLimiterFilter | event=fallback_to_local",
+                keyValue("tenantId", tenant.id()),
+                keyValue("path", matchedRoute.path()),
+                keyValue("limiterType", limiterType),
+                keyValue("reason", ex.getMessage())
+        );
     }
 
     private void populateHeaders(ServerHttpResponse response, RateLimitResult rateLimitResult) {
