@@ -27,11 +27,13 @@ All configuration properties follow the uniform `${VARIABLE:default}` resolution
 
 ## Cryptographic Security
 
-| Configuration Property           | Environment Variable | Default Value                                   | Description                                                               |
-|----------------------------------|----------------------|-------------------------------------------------|---------------------------------------------------------------------------|
-| `chowkidar.security.hmac-secret` | `HMAC_SECRET`        | `chowkidar-default-secret-change-in-production` | Server-side signature token used to calculate HMAC-SHA256 API key hashes. |
+| Configuration Property                          | Environment Variable  | Default Value                                   | Description                                                                                                                                                                                                          |
+|-------------------------------------------------|-----------------------|-------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `chowkidar.security.hmac-secret`                | `HMAC_SECRET`         | `chowkidar-default-secret-change-in-production` | Server-side signature token used to calculate HMAC-SHA256 API key hashes.                                                                                                                                            |
+| `chowkidar.security.api-key-grace-period-hours` | `API_KEY_GRACE_HOURS` | `12`                                            | Duration in hours that a rotated key remains valid after a new key is issued. Callers using a key within this window receive an `X-Api-Key-Deprecated: true` response header. After expiry, the old key returns 403. |
 
 **Security Warning:** The out-of-the-box secret value is a plain text placeholder meant only for local evaluation. In staging or production environments, map HMAC_SECRET to a cryptographically random string of at least 32 characters. Because all active API key database validations match against this signature, changing this secret will instantly invalidate all existing tenant tokens.
+**Operational Note:** Align this value with your deployment and notification cadence. 12 hours gives service teams one business half-day to propagate a new key. Shortening this window increases security but raises the risk of service disruption if callers are slow to rotate.
 
 ## In-Process Memory Cache
 

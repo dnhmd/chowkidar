@@ -149,6 +149,36 @@ Standard Mapped Diagnostic Context (MDC) setups were rejected for trace distribu
 
 ---
 
+## Sprint 4: API Key Lifecycle and Observability Completion
+
+### API Key Rotation and Tenant Revocation
+
+Sprint 3 protected credentials at rest using HMAC-SHA256. Sprint 4 addresses the operational problem that follows: what happens when a key needs to change?
+
+The rotation model separates two concerns that are easy to conflate. Key expiry is a lifecycle event, an old key gracefully winding down after a new one is issued. Revocation is a security event, a tenant being explicitly denied access regardless of which key they present. The schema reflects this separation. Expiry metadata lives in `tenant_api_keys`. Status lives on `tenants`.
+
+The `ContextService.resolveFromDatabase()` method evaluates requests through an ordered decision tree:
+
+1. Look up by current `api_key_hash` on `tenants`. If found and `ACTIVE`, resolve normally.
+2. If found and `REVOKED`, return 403 immediately. Do not fall through to previous key check.
+3. If not found, look up by `previous_api_key_hash` on `tenant_api_keys`. If found, check grace window expiry, then fetch tenant and check status.
+4. If expired previous key, return 403 with explicit expiry message.
+5. If no match on either path, return 401.
+
+The distinction between 401 and 403 is load-bearing. 401 means the key is unrecognized. 403 means the tenant is identified but explicitly blocked. Conflating them hides the operational reason for rejection in logs and makes incident response harder.
+
+The deprecated flag, set when a request authenticates via the previous key path, travels downstream via Reactor context rather than through the domain model. `TenantContext` and `Tenant` are domain objects; whether a caller used a deprecated key is request-scoped authentication metadata. Mixing the two would bleed lifecycle state into objects that have no business carrying it.
+
+### Structured Logging Completion
+
+Sprint 3 introduced structured logging inside `RateLimiterFilter` via `doFinally`. Sprint 4 extends coverage to all four filters and all three services. Two principles guided the pass:
+
+**Use `doOnError` not `switchIfEmpty` for failure logging.** All failure paths in `ContextService.resolve()` terminate in `Mono.error`, never in an empty signal. A `switchIfEmpty` block would be unreachable. `doOnError` captures the exception before propagation, giving the log statement access to exception type and HTTP status code.
+
+**Log mutations at service layer, skip reads.** Read operations in `TenantService` and `RouteService` are excluded. High-frequency reads produce noise that drowns signal in production log streams. Mutations — creates, updates, deletes, rotations — are low-frequency and high-consequence. Those are worth recording.
+
+---
+
 ## Current Filter Chain (Sprint 3)
 
 The active filter pipeline functions with the following configuration:

@@ -20,6 +20,8 @@ The gateway proxy layer could have been built using raw Netty handlers to provid
 
 Building on raw sockets introduces a large development surface area for problems that are already solved by mature frameworks. Managing protocol variance between HTTP/1.1 and HTTP/2, handling custom TLS handshakes, and overseeing raw byte buffer lifecycles are all complex tasks that present potential vulnerability vectors. `WebClient` provides a high-level reactive HTTP client built on Netty that abstracts these complexities away behind a clean API. Should the proxy layer ever become a system bottleneck, the lower-level Netty foundations remain accessible for direct customization.
 
+---
+
 ## State Management & Distributed Rate Limiting
 
 ### Why Redis Lua Scripts over MULTI/EXEC Transactions
@@ -37,6 +39,8 @@ The initial architectural design consolidated all five rate limiting fields (`to
 This layout created concurrent performance bottlenecks. Although Redis Lua scripts maintain absolute transaction atomicity, two separate scripts requesting access to the identical data key are forced to run sequentially rather than concurrently. If the token bucket script and the sliding window script target the same hash key structure, they lock each other out. Every request paid the latency cost of these scripts waiting in line.
 
 Separating these fields into independent key spaces (`ratelimit:velocity:...` and `ratelimit:volume:...`) creates isolated implicit locks. This key layout allows both Lua scripts to execute concurrently using `Mono.zip` without competing for the same memory address. The small network cost of dispatching two operations instead of one is offset by eliminating the sequential script bottleneck.
+
+---
 
 ## Security & Reliability Architecture
 
@@ -72,6 +76,38 @@ The local rate limiter fallback must handle multithreaded traffic safely without
 
 Using an `AtomicReference<BucketState>` combined with a non-blocking compare-and-set retry loop avoids locking threads. The execution loop reads the memory reference, calculates token changes, and attempts an atomic data swap via compareAndSet. If a parallel thread updates the state reference mid-calculation, the swap fails safely, and the loop retries against the updated state. Under normal traffic conditions, this operation completes in a single iteration without blocking thread execution.
 
+### Why Rotation Metadata Lives in a Separate Table
+
+Adding `previous_api_key_hash` and `previous_key_expires_at` directly to the `tenants` table was the simpler implementation path. A separate `tenant_api_keys` table was chosen for two reasons.
+
+First, rotation is a distinct concern from identity. A tenant exists independently of whether they have ever rotated their key. A separate table makes the absence of rotation history structurally explicit — a tenant with no row in `tenant_api_keys` has never rotated. Null columns on `tenants` would require application-level interpretation of what null means in that context.
+
+Second, the one-to-one relationship enforced by `tenant_id` as the primary key on `tenant_api_keys` makes a design constraint visible at the schema level: a tenant can have at most one previous key in a grace period at any time. This is not a technical limitation — it is a product decision. Representing it in the schema prevents application code from accidentally creating multiple grace-period entries and removes the need to enforce the constraint in service logic.
+
+### Why Status Lives on `tenants`, Not on `tenant_api_keys`
+
+An early design considered placing `status` inside `tenant_api_keys` to allow per-key revocation. This was rejected because it implies a use case the system does not support: a tenant being active on one key and revoked on another.
+
+Revocation is a tenant-level security decision. If a tenant account is compromised or suspended, both the current key and any keys in grace period should be dead immediately. Placing status on `tenants` enforces this correctly. The resolution logic checks status after identifying the tenant, regardless of which key path was used to find them.
+
+### Why `doOnError` for Filter-Level Resolution Failure Logging
+
+`ContextService.resolve()` terminates all failure paths with `Mono.error`. There are no empty signals — a miss on both key lookup paths results in a 401 error, not an empty `Mono`. Placing failure logging inside `switchIfEmpty` in `ContextResolutionFilter` would be dead code that silently never executes.
+
+`doOnError` attaches as a side-effect operator on the reactive pipeline and fires on any error signal before it propagates downstream. This gives the log statement access to the exception type and, via pattern matching on `ResponseStatusException`, the HTTP status code that will eventually reach the caller. The log is emitted once, at the right point, with full context.
+
+### Why the Deprecated Flag Travels via Reactor Context
+
+When a request authenticates using a previous key still within its grace period, the gateway needs to signal this downstream so `ContextResolutionFilter` can set the `X-Api-Key-Deprecated: true` response header.
+
+Three options were considered: add a `deprecated` boolean to `TenantContext`, add it to the `Tenant` record, or write it to Reactor context.
+
+Adding it to `TenantContext` or `Tenant` conflates request-scoped authentication state with domain model data. Whether a caller used a deprecated key is not a property of the tenant — it is a property of how this specific request authenticated. Domain objects that carry request-scoped metadata become harder to reason about and harder to test in isolation.
+
+Reactor context is the correct scope for request-scoped metadata that needs to travel downstream without modifying domain objects. It mirrors how `TenantContext` itself and the matched `Route` are propagated — through the reactive context, not through method parameters or modified domain state.
+
+---
+
 ## Pipeline Integration & Filter Mechanics
 
 ### Why `ConcurrentHashMap` over Spring Cache for Local Storage
@@ -105,6 +141,8 @@ To prevent memory leaks, the decorator explicitly releases the original data buf
 Enforcing universal idempotency validation across all mutating actions would require clients to append an `X-Idempotency-Key` header to every single `POST`, `PUT`, and `PATCH` request. For lightweight ingestion endpoints or analytics services that do not require deduplication, this design places an unnecessary integration burden on client applications.
 
 Adding a `requires_idempotency` boolean property to the routing configuration allows engineering teams to target deduplication explicitly where it matters most, such as payment webhooks, order creation paths, or account provisioning forms. Standard ingestion paths process traffic directly, completely bypassing the memory overhead of Redis lock evaluations and response caching routines.
+
+---
 
 ## Retrospective & Future Adjustments
 

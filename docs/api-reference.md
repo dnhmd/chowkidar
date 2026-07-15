@@ -12,6 +12,12 @@ Proxy requests require an `X-API-Key` request header containing the raw token pr
 
 Administrative configuration endpoints do not require authentication headers.
 
+Callers using a key that has been rotated but is still within its grace period will receive responses with an `X-Api-Key-Deprecated: true` header. This signals that the key will stop working after the grace window closes and a new key should be provisioned immediately.
+
+ Header | Description |
+|---|---|
+| `X-Api-Key-Deprecated` | Present and `true` when the request authenticated using a rotated key still within its grace period. |
+
 ---
 
 ## Tenants
@@ -102,6 +108,29 @@ Modifies a tenant's display name. This parameter represents the only mutable pro
 ```
 
 **Pipeline Side Effects:** Triggers an immediate cache-aside invalidation loop for this tenant across the in-process cache tier to ensure name updates apply instantly.
+
+### Rotate API Key
+
+```
+POST /management/tenants/{id}/rotate-key
+```
+
+Generates a new API key for the specified tenant. The previous key remains valid for a configurable grace period (default 12 hours) to allow callers time to propagate the new credential. After the grace window closes, the old key returns 403.
+
+The `apiKey` property in the response represents the only time the new raw token is visible. It is not stored in plaintext and cannot be retrieved after this response.
+
+**Response (200 OK):**
+```json
+{
+  "id": "16c84d44-943e-444e-abaf-4c40bfeafa57",
+  "name": "my-service",
+  "apiKey": "3a7fc2e1b9264dac951e08b66f3a27c8"
+}
+```
+
+**Exception Rules:** Returns 404 if the tenant does not exist.
+
+**Pipeline Side Effects:** Invalidates the in-process cache entry for the old key hash immediately. Callers still using the old key within the grace period will trigger a fresh database lookup on the next request. Responses to deprecated key requests include `X-Api-Key-Deprecated: true`.
 
 ### Delete Tenant
 
@@ -338,14 +367,15 @@ All system exceptions and validation rejections return a unified JSON layout:
 }
 ```
 
-| HTTP Status             | Triggering Platform Condition                                                            |
-|-------------------------|------------------------------------------------------------------------------------------|
-| 400 Bad Request         | Request data validation error or missing an expected X-Idempotency-Key header.           |
-| 401 Unauthorized        | The `X-API-Key` tracker is missing or failed cryptographic validation checks.            |
-| 404 Not Found           | No matching route path is registered for the incoming request line.                      |
-| 409 Conflict            | A concurrent idempotent execution block using the same key is already running.           |
-| 429 Too Many Requests   | Consumption thresholds have been breached across velocity or volume boundaries.          |
-| 503 Service Unavailable | Target upstream backend application is unresponsive or relational databases are offline. |
+| HTTP Status             | Triggering Platform Condition                                                                          |
+|-------------------------|--------------------------------------------------------------------------------------------------------|
+| 400 Bad Request         | Request data validation error or missing an expected X-Idempotency-Key header.                         |
+| 401 Unauthorized        | The `X-API-Key` tracker is missing or failed cryptographic validation checks.                          |
+| 404 Not Found           | No matching route path is registered for the incoming request line.                                    |
+| 409 Conflict            | A concurrent idempotent execution block using the same key is already running.                         |
+| 429 Too Many Requests   | Consumption thresholds have been breached across velocity or volume boundaries.                        |
+| 503 Service Unavailable | Target upstream backend application is unresponsive or relational databases are offline.               |
+| 403 Forbidden           | The tenant account is explicitly revoked, or the presented API key has passed its grace period expiry. |
 
 ---
 
