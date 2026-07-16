@@ -40,8 +40,8 @@ public class RouteController {
     }
 
     @PatchMapping("/{id}/upstream")
-    public Mono<ResponseEntity<RouteResponse>> updateUpstream(@PathVariable("tenantId") UUID tenantId, @PathVariable("id") UUID id, @Valid @RequestBody UpdateRouteUpstreamRequest updateRouteUpstreamRequest) {
-        return routeService.updateUpstream(tenantId, id, updateRouteUpstreamRequest)
+    public Mono<ResponseEntity<RouteResponse>> updateUrl(@PathVariable("tenantId") UUID tenantId, @PathVariable("id") UUID id, @Valid @RequestBody UpdateRouteUrlRequest updateRouteUrlRequest) {
+        return routeService.updateUrl(tenantId, id, updateRouteUrlRequest)
                 .map(routeResponse -> ResponseEntity.status(HttpStatus.OK).body(routeResponse));
     }
 

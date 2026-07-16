@@ -62,6 +62,7 @@ public class RouteService {
                                 tenantId,
                                 createRouteRequest.path(),
                                 createRouteRequest.upstreamUrl(),
+                                createRouteRequest.fallbackUrl(),
                                 createRouteRequest.timeoutMs() != null ? createRouteRequest.timeoutMs() : defaultTimeoutMs,
                                 createRouteRequest.capacity() != null ? createRouteRequest.capacity() : defaultCapacity,
                                 createRouteRequest.refillRate() != null ? createRouteRequest.refillRate() : defaultRefillRate,
@@ -74,6 +75,7 @@ public class RouteService {
                                 route.id(),
                                 route.path(),
                                 route.upstreamUrl(),
+                                route.fallbackUrl(),
                                 route.timeoutMs(),
                                 route.capacity(),
                                 route.refillRate(),
@@ -102,6 +104,7 @@ public class RouteService {
                                     routeId,
                                     route.path(),
                                     route.upstreamUrl(),
+                                    route.fallbackUrl(),
                                     route.timeoutMs(),
                                     route.capacity(),
                                     route.refillRate(),
@@ -122,6 +125,7 @@ public class RouteService {
                                     route.id(),
                                     route.path(),
                                     route.upstreamUrl(),
+                                    route.fallbackUrl(),
                                     route.timeoutMs(),
                                     route.capacity(),
                                     route.refillRate(),
@@ -132,7 +136,7 @@ public class RouteService {
                 });
     }
 
-    public Mono<RouteResponse> updateUpstream(UUID tenantId, UUID routeId, UpdateRouteUpstreamRequest updateRouteUpstreamRequest) {
+    public Mono<RouteResponse> updateUrl(UUID tenantId, UUID routeId, UpdateRouteUrlRequest updateRouteUrlRequest) {
         return tenantRepository.findById(tenantId)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
                 .flatMap(tenantEntity -> {
@@ -143,7 +147,8 @@ public class RouteService {
                                             routeEntity.id,
                                             routeEntity.tenantId,
                                             routeEntity.path,
-                                            updateRouteUpstreamRequest.upstreamUrl(),
+                                            updateRouteUrlRequest.upstreamUrl(),
+                                            updateRouteUrlRequest.fallbackUrl(),
                                             routeEntity.timeoutMs,
                                             routeEntity.capacity,
                                             routeEntity.refillRate,
@@ -157,7 +162,8 @@ public class RouteService {
                             .map(route -> new RouteResponse(
                                     routeId,
                                     route.path(),
-                                    updateRouteUpstreamRequest.upstreamUrl(),
+                                    updateRouteUrlRequest.upstreamUrl(),
+                                    updateRouteUrlRequest.fallbackUrl(),
                                     route.timeoutMs(),
                                     route.capacity(),
                                     route.refillRate(),
@@ -181,6 +187,7 @@ public class RouteService {
                                             routeEntity.tenantId,
                                             routeEntity.path,
                                             routeEntity.upstreamUrl,
+                                            routeEntity.fallbackUrl,
                                             routeEntity.timeoutMs,
                                             updateRouteRateRequest.capacity(),
                                             updateRouteRateRequest.refillRate(),
@@ -195,6 +202,7 @@ public class RouteService {
                                     routeId,
                                     route.path(),
                                     route.upstreamUrl(),
+                                    route.fallbackUrl(),
                                     route.timeoutMs(),
                                     updateRouteRateRequest.capacity(),
                                     updateRouteRateRequest.refillRate(),
@@ -218,6 +226,7 @@ public class RouteService {
                                             routeEntity.tenantId,
                                             routeEntity.path,
                                             routeEntity.upstreamUrl,
+                                            routeEntity.fallbackUrl,
                                             routeEntity.timeoutMs,
                                             routeEntity.capacity,
                                             routeEntity.refillRate,
@@ -232,6 +241,7 @@ public class RouteService {
                                     routeId,
                                     route.path(),
                                     route.upstreamUrl(),
+                                    route.fallbackUrl(),
                                     route.timeoutMs(),
                                     route.capacity(),
                                     route.refillRate(),
@@ -255,6 +265,7 @@ public class RouteService {
                                             routeEntity.tenantId,
                                             routeEntity.path,
                                             routeEntity.upstreamUrl,
+                                            routeEntity.fallbackUrl,
                                             updateRouteTimeoutRequest.timeoutMs(),
                                             routeEntity.capacity,
                                             routeEntity.refillRate,
@@ -269,6 +280,7 @@ public class RouteService {
                                     routeId,
                                     route.path(),
                                     route.upstreamUrl(),
+                                    route.fallbackUrl(),
                                     updateRouteTimeoutRequest.timeoutMs(),
                                     route.capacity(),
                                     route.refillRate(),
