@@ -1,10 +1,7 @@
 package com.chowkidar.gateway.management.service;
 
 import com.chowkidar.gateway.context.service.ContextService;
-import com.chowkidar.gateway.management.dto.request.CreateRouteRequest;
-import com.chowkidar.gateway.management.dto.request.UpdateRouteIdempotencyRequest;
-import com.chowkidar.gateway.management.dto.request.UpdateRouteRateRequest;
-import com.chowkidar.gateway.management.dto.request.UpdateRouteUpstreamRequest;
+import com.chowkidar.gateway.management.dto.request.*;
 import com.chowkidar.gateway.management.dto.response.RouteResponse;
 import com.chowkidar.gateway.persistence.entity.RouteEntity;
 import com.chowkidar.gateway.persistence.mappers.RouteMapper;
@@ -32,6 +29,7 @@ public class RouteService {
     private final RouteRepository routeRepository;
     private final ContextService contextService;
 
+    private final Integer defaultTimeoutMs;
     private final Integer defaultCapacity;
     private final Integer defaultRefillRate;
     private final Integer defaultVolumeLimit;
@@ -41,6 +39,7 @@ public class RouteService {
             TenantRepository tenantRepository,
             RouteRepository routeRepository,
             ContextService contextService,
+            @Value("${chowkidar.route.default-timeout-ms:3000}") Integer defaultTimeoutMs,
             @Value("${chowkidar.rate-limit.default-capacity:100}") Integer defaultCapacity,
             @Value("${chowkidar.rate-limit.default-refill-rate:10}") Integer defaultRefillRate,
             @Value("${chowkidar.rate-limit.default-volume-limit:10000}") Integer defaultVolumeLimit,
@@ -49,6 +48,7 @@ public class RouteService {
         this.tenantRepository = tenantRepository;
         this.routeRepository = routeRepository;
         this.contextService = contextService;
+        this.defaultTimeoutMs = defaultTimeoutMs;
         this.defaultCapacity = defaultCapacity;
         this.defaultRefillRate = defaultRefillRate;
         this.defaultVolumeLimit = defaultVolumeLimit;
@@ -62,6 +62,7 @@ public class RouteService {
                                 tenantId,
                                 createRouteRequest.path(),
                                 createRouteRequest.upstreamUrl(),
+                                createRouteRequest.timeoutMs() != null ? createRouteRequest.timeoutMs() : defaultTimeoutMs,
                                 createRouteRequest.capacity() != null ? createRouteRequest.capacity() : defaultCapacity,
                                 createRouteRequest.refillRate() != null ? createRouteRequest.refillRate() : defaultRefillRate,
                                 createRouteRequest.volumeLimit() != null ? createRouteRequest.volumeLimit() : defaultVolumeLimit,
@@ -73,6 +74,7 @@ public class RouteService {
                                 route.id(),
                                 route.path(),
                                 route.upstreamUrl(),
+                                route.timeoutMs(),
                                 route.capacity(),
                                 route.refillRate(),
                                 route.volumeLimit(),
@@ -100,6 +102,7 @@ public class RouteService {
                                     routeId,
                                     route.path(),
                                     route.upstreamUrl(),
+                                    route.timeoutMs(),
                                     route.capacity(),
                                     route.refillRate(),
                                     route.volumeLimit(),
@@ -119,6 +122,7 @@ public class RouteService {
                                     route.id(),
                                     route.path(),
                                     route.upstreamUrl(),
+                                    route.timeoutMs(),
                                     route.capacity(),
                                     route.refillRate(),
                                     route.volumeLimit(),
@@ -140,6 +144,7 @@ public class RouteService {
                                             routeEntity.tenantId,
                                             routeEntity.path,
                                             updateRouteUpstreamRequest.upstreamUrl(),
+                                            routeEntity.timeoutMs,
                                             routeEntity.capacity,
                                             routeEntity.refillRate,
                                             routeEntity.volumeLimit,
@@ -153,6 +158,7 @@ public class RouteService {
                                     routeId,
                                     route.path(),
                                     updateRouteUpstreamRequest.upstreamUrl(),
+                                    route.timeoutMs(),
                                     route.capacity(),
                                     route.refillRate(),
                                     route.volumeLimit(),
@@ -175,6 +181,7 @@ public class RouteService {
                                             routeEntity.tenantId,
                                             routeEntity.path,
                                             routeEntity.upstreamUrl,
+                                            routeEntity.timeoutMs,
                                             updateRouteRateRequest.capacity(),
                                             updateRouteRateRequest.refillRate(),
                                             updateRouteRateRequest.volumeLimit(),
@@ -188,6 +195,7 @@ public class RouteService {
                                     routeId,
                                     route.path(),
                                     route.upstreamUrl(),
+                                    route.timeoutMs(),
                                     updateRouteRateRequest.capacity(),
                                     updateRouteRateRequest.refillRate(),
                                     updateRouteRateRequest.volumeLimit(),
@@ -210,6 +218,7 @@ public class RouteService {
                                             routeEntity.tenantId,
                                             routeEntity.path,
                                             routeEntity.upstreamUrl,
+                                            routeEntity.timeoutMs,
                                             routeEntity.capacity,
                                             routeEntity.refillRate,
                                             routeEntity.volumeLimit,
@@ -223,11 +232,49 @@ public class RouteService {
                                     routeId,
                                     route.path(),
                                     route.upstreamUrl(),
+                                    route.timeoutMs(),
                                     route.capacity(),
                                     route.refillRate(),
                                     route.volumeLimit(),
                                     route.windowSize(),
                                     updateRouteIdempotencyRequest.requiresIdempotency()
+                            ))
+                            .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKeyHash));
+                });
+    }
+
+    public Mono<RouteResponse> updateRouteTimeout(UUID tenantId, UUID routeId, UpdateRouteTimeoutRequest updateRouteTimeoutRequest) {
+        return tenantRepository.findById(tenantId)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
+                .flatMap(tenantEntity -> {
+                    return routeRepository.findById(routeId)
+                            .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))
+                            .flatMap(routeEntity -> routeRepository.save(
+                                    new RouteEntity(
+                                            routeEntity.id,
+                                            routeEntity.tenantId,
+                                            routeEntity.path,
+                                            routeEntity.upstreamUrl,
+                                            updateRouteTimeoutRequest.timeoutMs(),
+                                            routeEntity.capacity,
+                                            routeEntity.refillRate,
+                                            routeEntity.volumeLimit,
+                                            routeEntity.windowSize,
+                                            routeEntity.requiresIdempotency,
+                                            routeEntity.createdAt
+                                    )
+                            ))
+                            .map(RouteMapper::toContext)
+                            .map(route -> new RouteResponse(
+                                    routeId,
+                                    route.path(),
+                                    route.upstreamUrl(),
+                                    updateRouteTimeoutRequest.timeoutMs(),
+                                    route.capacity(),
+                                    route.refillRate(),
+                                    route.volumeLimit(),
+                                    route.windowSize(),
+                                    route.requiresIdempotency()
                             ))
                             .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKeyHash));
                 });

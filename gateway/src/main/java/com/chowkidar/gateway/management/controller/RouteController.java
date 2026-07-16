@@ -1,9 +1,6 @@
 package com.chowkidar.gateway.management.controller;
 
-import com.chowkidar.gateway.management.dto.request.CreateRouteRequest;
-import com.chowkidar.gateway.management.dto.request.UpdateRouteIdempotencyRequest;
-import com.chowkidar.gateway.management.dto.request.UpdateRouteRateRequest;
-import com.chowkidar.gateway.management.dto.request.UpdateRouteUpstreamRequest;
+import com.chowkidar.gateway.management.dto.request.*;
 import com.chowkidar.gateway.management.dto.response.RouteResponse;
 import com.chowkidar.gateway.management.service.RouteService;
 import jakarta.validation.Valid;
@@ -57,6 +54,12 @@ public class RouteController {
     @PatchMapping("/{id}/idempotency")
     public Mono<ResponseEntity<RouteResponse>> updateRouteIdempotency(@PathVariable("tenantId") UUID tenantId, @PathVariable("id") UUID id, @Valid @RequestBody UpdateRouteIdempotencyRequest updateRouteIdempotencyRequest) {
         return routeService.updateIdempotencyRequirement(tenantId, id, updateRouteIdempotencyRequest)
+                .map(routeResponse -> ResponseEntity.status(HttpStatus.OK).body(routeResponse));
+    }
+
+    @PatchMapping("/{id}/timeout")
+    public Mono<ResponseEntity<RouteResponse>> updateRouteTimeout(@PathVariable("tenantId") UUID tenantId, @PathVariable("id") UUID id, @Valid @RequestBody UpdateRouteTimeoutRequest updateRouteTimeoutRequest) {
+        return routeService.updateRouteTimeout(tenantId, id, updateRouteTimeoutRequest)
                 .map(routeResponse -> ResponseEntity.status(HttpStatus.OK).body(routeResponse));
     }
 

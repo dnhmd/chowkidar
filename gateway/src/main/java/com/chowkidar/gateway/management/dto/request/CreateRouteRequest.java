@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 public record CreateRouteRequest(
         @NotBlank String path,
         @NotBlank String upstreamUrl,
+        Integer timeoutMs,
         Integer capacity,
         Integer refillRate,
         Integer volumeLimit,

@@ -44,6 +44,8 @@ chowkidar:
     default-refill-rate: 10
     default-volume-limit: 10000
     default-window-size: 3600
+  route:
+    timeout-ms: 3000
   security:
     hmac-secret: ${HMAC_SECRET:chowkidar-default-secret-change-in-production}
     api-key-grace-period-hours: 12
