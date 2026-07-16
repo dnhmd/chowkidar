@@ -1,6 +1,7 @@
 package com.chowkidar.gateway.management.controller;
 
 import com.chowkidar.gateway.management.dto.request.*;
+import com.chowkidar.gateway.management.dto.response.RouteHealthResponse;
 import com.chowkidar.gateway.management.dto.response.RouteResponse;
 import com.chowkidar.gateway.management.service.RouteService;
 import jakarta.validation.Valid;
@@ -37,6 +38,11 @@ public class RouteController {
     @GetMapping
     public Flux<RouteResponse> getAll(@PathVariable("tenantId") UUID tenantId) {
         return routeService.getAllByTenant(tenantId);
+    }
+
+    @GetMapping("/health")
+    public Flux<RouteHealthResponse> getAllRouteHealth(@PathVariable("tenantId") UUID tenantId) {
+        return routeService.getAllRouteHealthByTenant(tenantId);
     }
 
     @PatchMapping("/{id}/upstream")

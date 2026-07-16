@@ -1,15 +1,22 @@
 package com.chowkidar.gateway.management.service;
 
+import com.chowkidar.gateway.context.model.Route;
 import com.chowkidar.gateway.context.service.ContextService;
+import com.chowkidar.gateway.health.RouteHealthEntry;
+import com.chowkidar.gateway.health.RouteHealthRegistry;
 import com.chowkidar.gateway.management.dto.request.*;
+import com.chowkidar.gateway.management.dto.response.RouteHealthResponse;
 import com.chowkidar.gateway.management.dto.response.RouteResponse;
 import com.chowkidar.gateway.persistence.entity.RouteEntity;
 import com.chowkidar.gateway.persistence.mappers.RouteMapper;
 import com.chowkidar.gateway.persistence.repositories.RouteRepository;
 import com.chowkidar.gateway.persistence.repositories.TenantRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -28,6 +35,9 @@ public class RouteService {
     private final TenantRepository tenantRepository;
     private final RouteRepository routeRepository;
     private final ContextService contextService;
+    private final RouteHealthRegistry routeHealthRegistry;
+    private final ReactiveRedisTemplate<String, String> redisTemplate;
+    private final ObjectMapper objectMapper;
 
     private final Integer defaultTimeoutMs;
     private final Integer defaultCapacity;
@@ -39,6 +49,9 @@ public class RouteService {
             TenantRepository tenantRepository,
             RouteRepository routeRepository,
             ContextService contextService,
+            RouteHealthRegistry routeHealthRegistry,
+            ReactiveRedisTemplate<String, String> redisTemplate,
+            ObjectMapper objectMapper,
             @Value("${chowkidar.route.default-timeout-ms:3000}") Integer defaultTimeoutMs,
             @Value("${chowkidar.rate-limit.default-capacity:100}") Integer defaultCapacity,
             @Value("${chowkidar.rate-limit.default-refill-rate:10}") Integer defaultRefillRate,
@@ -48,6 +61,9 @@ public class RouteService {
         this.tenantRepository = tenantRepository;
         this.routeRepository = routeRepository;
         this.contextService = contextService;
+        this.routeHealthRegistry = routeHealthRegistry;
+        this.redisTemplate = redisTemplate;
+        this.objectMapper = objectMapper;
         this.defaultTimeoutMs = defaultTimeoutMs;
         this.defaultCapacity = defaultCapacity;
         this.defaultRefillRate = defaultRefillRate;
@@ -84,6 +100,12 @@ public class RouteService {
                                 route.requiresIdempotency()
                         ))
                         .doOnNext(routeResponse -> {
+                            routeHealthRegistry.register(new RouteHealthEntry(
+                                    routeResponse.id(),
+                                    routeResponse.upstreamUrl(),
+                                    routeResponse.fallbackUrl(),
+                                    routeResponse.path()
+                            ));
                             contextService.invalidate(tenantEntity.apiKeyHash);
                             log.info("RouteService | event=route_created",
                                     keyValue("tenantId", tenantId),
@@ -96,200 +118,218 @@ public class RouteService {
     public Mono<RouteResponse> getById(UUID tenantId, UUID routeId) {
         return tenantRepository.findById(tenantId)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
-                .flatMap(tenantEntity -> {
-                    return routeRepository.findById(routeId)
-                            .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))
-                            .map(RouteMapper::toContext)
-                            .map(route -> new RouteResponse(
-                                    routeId,
-                                    route.path(),
-                                    route.upstreamUrl(),
-                                    route.fallbackUrl(),
-                                    route.timeoutMs(),
-                                    route.capacity(),
-                                    route.refillRate(),
-                                    route.volumeLimit(),
-                                    route.windowSize(),
-                                    route.requiresIdempotency()
-                            ));
-                });
+                .flatMap(tenantEntity -> routeRepository.findById(routeId)
+                        .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))
+                        .map(RouteMapper::toContext)
+                        .map(route -> new RouteResponse(
+                                routeId,
+                                route.path(),
+                                route.upstreamUrl(),
+                                route.fallbackUrl(),
+                                route.timeoutMs(),
+                                route.capacity(),
+                                route.refillRate(),
+                                route.volumeLimit(),
+                                route.windowSize(),
+                                route.requiresIdempotency()
+                        )));
     }
 
     public Flux<RouteResponse> getAllByTenant(UUID tenantId) {
         return tenantRepository.findById(tenantId)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
-                .flatMapMany(tenantEntity -> {
-                    return routeRepository.findByTenantId(tenantId)
-                            .map(RouteMapper::toContext)
-                            .map(route -> new RouteResponse(
-                                    route.id(),
-                                    route.path(),
-                                    route.upstreamUrl(),
-                                    route.fallbackUrl(),
-                                    route.timeoutMs(),
-                                    route.capacity(),
-                                    route.refillRate(),
-                                    route.volumeLimit(),
-                                    route.windowSize(),
-                                    route.requiresIdempotency()
-                            ));
-                });
+                .flatMapMany(tenantEntity -> routeRepository.findByTenantId(tenantId)
+                        .map(RouteMapper::toContext)
+                        .map(route -> new RouteResponse(
+                                route.id(),
+                                route.path(),
+                                route.upstreamUrl(),
+                                route.fallbackUrl(),
+                                route.timeoutMs(),
+                                route.capacity(),
+                                route.refillRate(),
+                                route.volumeLimit(),
+                                route.windowSize(),
+                                route.requiresIdempotency()
+                        )));
+    }
+
+    public Flux<RouteHealthResponse> getAllRouteHealthByTenant(UUID tenantId) {
+        return tenantRepository.findById(tenantId)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
+                .flatMapMany(tenantEntity -> routeRepository.findByTenantId(tenantId)
+                        .map(RouteMapper::toContext)
+                        .flatMap(route -> redisTemplate.opsForValue()
+                                .get("route:health:" + route.id())
+                                .map(json -> parseHealthResponse(route, json))
+                                .defaultIfEmpty(new RouteHealthResponse(
+                                        route.id(),
+                                        route.path(),
+                                        route.upstreamUrl(),
+                                        route.fallbackUrl(),
+                                        "UNKNOWN",
+                                        0,
+                                        0L
+                                ))
+                        )
+
+                );
     }
 
     public Mono<RouteResponse> updateUrl(UUID tenantId, UUID routeId, UpdateRouteUrlRequest updateRouteUrlRequest) {
         return tenantRepository.findById(tenantId)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
-                .flatMap(tenantEntity -> {
-                    return routeRepository.findById(routeId)
-                            .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))
-                            .flatMap(routeEntity -> routeRepository.save(
-                                    new RouteEntity(
-                                            routeEntity.id,
-                                            routeEntity.tenantId,
-                                            routeEntity.path,
-                                            updateRouteUrlRequest.upstreamUrl(),
-                                            updateRouteUrlRequest.fallbackUrl(),
-                                            routeEntity.timeoutMs,
-                                            routeEntity.capacity,
-                                            routeEntity.refillRate,
-                                            routeEntity.volumeLimit,
-                                            routeEntity.windowSize,
-                                            routeEntity.requiresIdempotency,
-                                            routeEntity.createdAt
-                                    )
-                            ))
-                            .map(RouteMapper::toContext)
-                            .map(route -> new RouteResponse(
+                .flatMap(tenantEntity -> routeRepository.findById(routeId)
+                        .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))
+                        .flatMap(routeEntity -> routeRepository.save(
+                                new RouteEntity(
+                                        routeEntity.id,
+                                        routeEntity.tenantId,
+                                        routeEntity.path,
+                                        updateRouteUrlRequest.upstreamUrl(),
+                                        updateRouteUrlRequest.fallbackUrl(),
+                                        routeEntity.timeoutMs,
+                                        routeEntity.capacity,
+                                        routeEntity.refillRate,
+                                        routeEntity.volumeLimit,
+                                        routeEntity.windowSize,
+                                        routeEntity.requiresIdempotency,
+                                        routeEntity.createdAt
+                                )
+                        ))
+                        .map(RouteMapper::toContext)
+                        .map(route -> new RouteResponse(
+                                routeId,
+                                route.path(),
+                                updateRouteUrlRequest.upstreamUrl(),
+                                updateRouteUrlRequest.fallbackUrl(),
+                                route.timeoutMs(),
+                                route.capacity(),
+                                route.refillRate(),
+                                route.volumeLimit(),
+                                route.windowSize(),
+                                route.requiresIdempotency()
+                        ))
+                        .doOnNext(routeResponse -> {
+                            routeHealthRegistry.update(routeId, new RouteHealthEntry(
                                     routeId,
-                                    route.path(),
-                                    updateRouteUrlRequest.upstreamUrl(),
-                                    updateRouteUrlRequest.fallbackUrl(),
-                                    route.timeoutMs(),
-                                    route.capacity(),
-                                    route.refillRate(),
-                                    route.volumeLimit(),
-                                    route.windowSize(),
-                                    route.requiresIdempotency()
-                            ))
-                            .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKeyHash));
-                });
+                                    routeResponse.upstreamUrl(),
+                                    routeResponse.fallbackUrl(),
+                                    routeResponse.path()
+                            ));
+                            contextService.invalidate(tenantEntity.apiKeyHash);
+                        }));
     }
 
     public Mono<RouteResponse> updateRate(UUID tenantId, UUID routeId, UpdateRouteRateRequest updateRouteRateRequest) {
         return tenantRepository.findById(tenantId)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
-                .flatMap(tenantEntity -> {
-                    return routeRepository.findById(routeId)
-                            .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))
-                            .flatMap(routeEntity -> routeRepository.save(
-                                    new RouteEntity(
-                                            routeEntity.id,
-                                            routeEntity.tenantId,
-                                            routeEntity.path,
-                                            routeEntity.upstreamUrl,
-                                            routeEntity.fallbackUrl,
-                                            routeEntity.timeoutMs,
-                                            updateRouteRateRequest.capacity(),
-                                            updateRouteRateRequest.refillRate(),
-                                            updateRouteRateRequest.volumeLimit(),
-                                            updateRouteRateRequest.windowSize(),
-                                            routeEntity.requiresIdempotency,
-                                            routeEntity.createdAt
-                                    )
-                            ))
-                            .map(RouteMapper::toContext)
-                            .map(route -> new RouteResponse(
-                                    routeId,
-                                    route.path(),
-                                    route.upstreamUrl(),
-                                    route.fallbackUrl(),
-                                    route.timeoutMs(),
-                                    updateRouteRateRequest.capacity(),
-                                    updateRouteRateRequest.refillRate(),
-                                    updateRouteRateRequest.volumeLimit(),
-                                    updateRouteRateRequest.windowSize(),
-                                    route.requiresIdempotency()
-                            ))
-                            .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKeyHash));
-                });
+                .flatMap(tenantEntity -> routeRepository.findById(routeId)
+                        .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))
+                        .flatMap(routeEntity -> routeRepository.save(
+                                new RouteEntity(
+                                        routeEntity.id,
+                                        routeEntity.tenantId,
+                                        routeEntity.path,
+                                        routeEntity.upstreamUrl,
+                                        routeEntity.fallbackUrl,
+                                        routeEntity.timeoutMs,
+                                        updateRouteRateRequest.capacity(),
+                                        updateRouteRateRequest.refillRate(),
+                                        updateRouteRateRequest.volumeLimit(),
+                                        updateRouteRateRequest.windowSize(),
+                                        routeEntity.requiresIdempotency,
+                                        routeEntity.createdAt
+                                )
+                        ))
+                        .map(RouteMapper::toContext)
+                        .map(route -> new RouteResponse(
+                                routeId,
+                                route.path(),
+                                route.upstreamUrl(),
+                                route.fallbackUrl(),
+                                route.timeoutMs(),
+                                updateRouteRateRequest.capacity(),
+                                updateRouteRateRequest.refillRate(),
+                                updateRouteRateRequest.volumeLimit(),
+                                updateRouteRateRequest.windowSize(),
+                                route.requiresIdempotency()
+                        ))
+                        .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKeyHash)));
     }
 
     public Mono<RouteResponse> updateIdempotencyRequirement(UUID tenantId, UUID routeId, UpdateRouteIdempotencyRequest updateRouteIdempotencyRequest) {
         return tenantRepository.findById(tenantId)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
-                .flatMap(tenantEntity -> {
-                    return routeRepository.findById(routeId)
-                            .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))
-                            .flatMap(routeEntity -> routeRepository.save(
-                                    new RouteEntity(
-                                            routeEntity.id,
-                                            routeEntity.tenantId,
-                                            routeEntity.path,
-                                            routeEntity.upstreamUrl,
-                                            routeEntity.fallbackUrl,
-                                            routeEntity.timeoutMs,
-                                            routeEntity.capacity,
-                                            routeEntity.refillRate,
-                                            routeEntity.volumeLimit,
-                                            routeEntity.windowSize,
-                                            updateRouteIdempotencyRequest.requiresIdempotency(),
-                                            routeEntity.createdAt
-                                    )
-                            ))
-                            .map(RouteMapper::toContext)
-                            .map(route -> new RouteResponse(
-                                    routeId,
-                                    route.path(),
-                                    route.upstreamUrl(),
-                                    route.fallbackUrl(),
-                                    route.timeoutMs(),
-                                    route.capacity(),
-                                    route.refillRate(),
-                                    route.volumeLimit(),
-                                    route.windowSize(),
-                                    updateRouteIdempotencyRequest.requiresIdempotency()
-                            ))
-                            .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKeyHash));
-                });
+                .flatMap(tenantEntity -> routeRepository.findById(routeId)
+                        .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))
+                        .flatMap(routeEntity -> routeRepository.save(
+                                new RouteEntity(
+                                        routeEntity.id,
+                                        routeEntity.tenantId,
+                                        routeEntity.path,
+                                        routeEntity.upstreamUrl,
+                                        routeEntity.fallbackUrl,
+                                        routeEntity.timeoutMs,
+                                        routeEntity.capacity,
+                                        routeEntity.refillRate,
+                                        routeEntity.volumeLimit,
+                                        routeEntity.windowSize,
+                                        updateRouteIdempotencyRequest.requiresIdempotency(),
+                                        routeEntity.createdAt
+                                )
+                        ))
+                        .map(RouteMapper::toContext)
+                        .map(route -> new RouteResponse(
+                                routeId,
+                                route.path(),
+                                route.upstreamUrl(),
+                                route.fallbackUrl(),
+                                route.timeoutMs(),
+                                route.capacity(),
+                                route.refillRate(),
+                                route.volumeLimit(),
+                                route.windowSize(),
+                                updateRouteIdempotencyRequest.requiresIdempotency()
+                        ))
+                        .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKeyHash)));
     }
 
     public Mono<RouteResponse> updateRouteTimeout(UUID tenantId, UUID routeId, UpdateRouteTimeoutRequest updateRouteTimeoutRequest) {
         return tenantRepository.findById(tenantId)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found: " + tenantId)))
-                .flatMap(tenantEntity -> {
-                    return routeRepository.findById(routeId)
-                            .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))
-                            .flatMap(routeEntity -> routeRepository.save(
-                                    new RouteEntity(
-                                            routeEntity.id,
-                                            routeEntity.tenantId,
-                                            routeEntity.path,
-                                            routeEntity.upstreamUrl,
-                                            routeEntity.fallbackUrl,
-                                            updateRouteTimeoutRequest.timeoutMs(),
-                                            routeEntity.capacity,
-                                            routeEntity.refillRate,
-                                            routeEntity.volumeLimit,
-                                            routeEntity.windowSize,
-                                            routeEntity.requiresIdempotency,
-                                            routeEntity.createdAt
-                                    )
-                            ))
-                            .map(RouteMapper::toContext)
-                            .map(route -> new RouteResponse(
-                                    routeId,
-                                    route.path(),
-                                    route.upstreamUrl(),
-                                    route.fallbackUrl(),
-                                    updateRouteTimeoutRequest.timeoutMs(),
-                                    route.capacity(),
-                                    route.refillRate(),
-                                    route.volumeLimit(),
-                                    route.windowSize(),
-                                    route.requiresIdempotency()
-                            ))
-                            .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKeyHash));
-                });
+                .flatMap(tenantEntity -> routeRepository.findById(routeId)
+                        .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantEntity.id)))
+                        .flatMap(routeEntity -> routeRepository.save(
+                                new RouteEntity(
+                                        routeEntity.id,
+                                        routeEntity.tenantId,
+                                        routeEntity.path,
+                                        routeEntity.upstreamUrl,
+                                        routeEntity.fallbackUrl,
+                                        updateRouteTimeoutRequest.timeoutMs(),
+                                        routeEntity.capacity,
+                                        routeEntity.refillRate,
+                                        routeEntity.volumeLimit,
+                                        routeEntity.windowSize,
+                                        routeEntity.requiresIdempotency,
+                                        routeEntity.createdAt
+                                )
+                        ))
+                        .map(RouteMapper::toContext)
+                        .map(route -> new RouteResponse(
+                                routeId,
+                                route.path(),
+                                route.upstreamUrl(),
+                                route.fallbackUrl(),
+                                updateRouteTimeoutRequest.timeoutMs(),
+                                route.capacity(),
+                                route.refillRate(),
+                                route.volumeLimit(),
+                                route.windowSize(),
+                                route.requiresIdempotency()
+                        ))
+                        .doOnNext(routeResponse -> contextService.invalidate(tenantEntity.apiKeyHash)));
     }
 
     public Mono<Void> delete(UUID tenantId, UUID routeId) {
@@ -299,6 +339,7 @@ public class RouteService {
                         .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found for tenant: " + tenantId)))
                         .flatMap(routeEntity -> routeRepository.delete(routeEntity)
                                 .then(Mono.fromRunnable(() -> {
+                                    routeHealthRegistry.deregister(routeId);
                                     contextService.invalidate(tenantEntity.apiKeyHash);
                                     log.info("RouteService | event=route_deleted",
                                             keyValue("tenantId", tenantId),
@@ -306,5 +347,22 @@ public class RouteService {
                                     );
                                 }))
                         ));
+    }
+
+    private RouteHealthResponse parseHealthResponse(Route route, String json) {
+        try {
+            JsonNode node = objectMapper.readTree(json);
+            return new RouteHealthResponse(
+                    route.id(),
+                    route.path(),
+                    route.upstreamUrl(),
+                    route.fallbackUrl(),
+                    node.has("status") ? node.get("status").asText() : "UNKNOWN",
+                    node.has("statusCode") ? node.get("statusCode").asInt() : 0,
+                    node.has("timestamp") ? node.get("timestamp").asLong() : 0L
+            );
+        } catch (Exception e) {
+            return new RouteHealthResponse(route.id(), route.path(), route.upstreamUrl(), route.fallbackUrl(), "UNKNOWN", 0, 0L);
+        }
     }
 }
