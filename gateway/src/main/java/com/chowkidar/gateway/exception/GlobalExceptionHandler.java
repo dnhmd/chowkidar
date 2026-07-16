@@ -1,7 +1,10 @@
 package com.chowkidar.gateway.exception;
 
+import com.chowkidar.gateway.filter.ContextResolutionFilter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.web.reactive.error.ErrorWebExceptionHandler;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.io.buffer.DataBuffer;
@@ -16,9 +19,13 @@ import reactor.core.publisher.Mono;
 import java.time.Instant;
 import java.util.stream.Collectors;
 
+import static net.logstash.logback.argument.StructuredArguments.keyValue;
+
 @Component
 @Order(-1)
 public class GlobalExceptionHandler implements ErrorWebExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     private final ObjectMapper objectMapper;
 
@@ -42,6 +49,11 @@ public class GlobalExceptionHandler implements ErrorWebExceptionHandler {
         } else {
             httpStatus = HttpStatus.INTERNAL_SERVER_ERROR;
             message = "An unexpected error occurred.";
+
+            log.error("GlobalExceptionHandler | event=internal_server_error | Error: {}", ex.getMessage(),
+                    keyValue("path", exchange.getRequest().getPath()),
+                    keyValue("method", exchange.getRequest().getMethod().name()),
+                    keyValue("error", ex.getMessage()));
         }
 
         ErrorResponse errorResponse = new ErrorResponse(
