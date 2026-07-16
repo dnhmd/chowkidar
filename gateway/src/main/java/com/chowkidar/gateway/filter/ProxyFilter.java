@@ -19,9 +19,13 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
+import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 
+import java.net.URI;
+import java.time.Duration;
 import java.util.UUID;
+import java.util.concurrent.TimeoutException;
 
 import static net.logstash.logback.argument.StructuredArguments.keyValue;
 
@@ -54,14 +58,23 @@ public class ProxyFilter implements WebFilter {
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Matched route missing"));
 
             UUID tenantId = tenantContext.tenant().id();
-            String upstream = matchedRoute.upstreamUrl() + matchedRoute.path();
+            URI originalUri = exchange.getRequest().getURI();
             String httpMethod = exchange.getRequest().getMethod().name();
+            Duration routeTimeout = Duration.ofMillis(matchedRoute.timeoutMs());
 
+            URI upstreamUri = UriComponentsBuilder
+                    .fromUriString(matchedRoute.upstreamUrl())
+                    .replacePath(originalUri.getPath())
+                    .replaceQuery(originalUri.getQuery())
+                    .build(true)
+                    .toUri();
+
+            String upstream = upstreamUri.toString();
             CircuitBreaker upstreamCircuitBreaker = circuitBreakerRegistry.circuitBreaker("upstream-" + matchedRoute.id());
 
             return webClient
                     .method(exchange.getRequest().getMethod())
-                    .uri(upstream)
+                    .uri(upstreamUri)
                     .headers(h -> {
                         h.addAll(exchange.getRequest().getHeaders());
                         h.remove("X-API-Key");
@@ -72,7 +85,7 @@ public class ProxyFilter implements WebFilter {
                         exchange.getResponse().setStatusCode(clientResponse.statusCode());
                         exchange.getResponse().getHeaders().addAll(clientResponse.headers().asHttpHeaders());
 
-                        return exchange.getResponse().writeWith(clientResponse.bodyToFlux(DataBuffer.class))
+                        return exchange.getResponse().writeWith(clientResponse.bodyToFlux(DataBuffer.class).timeout(routeTimeout))
                                 .doOnSuccess(v -> log.info("ProxyFilter | event=proxy_success",
                                         keyValue("tenantId", tenantId),
                                         keyValue("upstream", upstream),
@@ -80,13 +93,26 @@ public class ProxyFilter implements WebFilter {
                                         keyValue("statusCode", clientResponse.statusCode().value())
                                 ));
                     })
+                    .timeout(routeTimeout)
+//                    .doOnError(TimeoutException.class, ex -> log.error("ProxyFilter | event=timeout_operator_intercepted",
+//                            keyValue("routeId", matchedRoute.id()),
+//                            keyValue("upstream", upstream),
+//                            keyValue("exceptionClass", ex.getClass().getName())
+//                    ))
                     .transformDeferred(CircuitBreakerOperator.of(upstreamCircuitBreaker))
+                    .onErrorResume(TimeoutException.class, ex -> {
+                        log.warn("ProxyFilter | event=server_request_timeout",
+                                keyValue("routeId", matchedRoute.id()),
+                                keyValue("upstream", upstream)
+                        );
+                        return Mono.error(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Upstream request timed out"));
+                    })
                     .onErrorResume(CallNotPermittedException.class, ex -> {
                         log.warn("ProxyFilter | event=circuit_breaker_open",
                                 keyValue("routeId", matchedRoute.id()),
                                 keyValue("upstream", upstream)
                         );
-                        return Mono.error(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Upstream service unavailable"));
+                        return Mono.error(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Upstream circuit breaker open"));
                     })
                     .doOnError(ex -> {
                         if (!(ex instanceof ResponseStatusException)) {
