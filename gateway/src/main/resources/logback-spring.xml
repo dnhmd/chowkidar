@@ -41,8 +41,7 @@
 
     <springProfile name="default">
         <root level="INFO">
-<!--            <appender-ref ref="CONSOLE" />-->
-            <appender-ref ref="JSON_CONSOLE" />
+            <appender-ref ref="CONSOLE" />
         </root>
         <logger name="com.chowkidar.gateway" level="DEBUG" />
     </springProfile>
