@@ -20,6 +20,7 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import org.springframework.web.util.UriComponentsBuilder;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
@@ -62,69 +63,116 @@ public class ProxyFilter implements WebFilter {
             String httpMethod = exchange.getRequest().getMethod().name();
             Duration routeTimeout = Duration.ofMillis(matchedRoute.timeoutMs());
 
+            Flux<DataBuffer> cachedBody = exchange.getRequest().getBody().cache();
+
             URI upstreamUri = UriComponentsBuilder
                     .fromUriString(matchedRoute.upstreamUrl())
                     .replacePath(originalUri.getPath())
                     .replaceQuery(originalUri.getQuery())
                     .build(true)
                     .toUri();
-
             String upstream = upstreamUri.toString();
+
             CircuitBreaker upstreamCircuitBreaker = circuitBreakerRegistry.circuitBreaker("upstream-" + matchedRoute.id());
 
-            return webClient
-                    .method(exchange.getRequest().getMethod())
-                    .uri(upstreamUri)
-                    .headers(h -> {
-                        h.addAll(exchange.getRequest().getHeaders());
-                        h.remove("X-API-Key");
-                        h.remove("Host");
-                    })
-                    .body(BodyInserters.fromDataBuffers(exchange.getRequest().getBody()))
-                    .exchangeToMono(clientResponse -> {
-                        exchange.getResponse().setStatusCode(clientResponse.statusCode());
-                        exchange.getResponse().getHeaders().addAll(clientResponse.headers().asHttpHeaders());
-
-                        return exchange.getResponse().writeWith(clientResponse.bodyToFlux(DataBuffer.class).timeout(routeTimeout))
-                                .doOnSuccess(v -> log.info("ProxyFilter | event=proxy_success",
-                                        keyValue("tenantId", tenantId),
-                                        keyValue("upstream", upstream),
-                                        keyValue("method", httpMethod),
-                                        keyValue("statusCode", clientResponse.statusCode().value())
-                                ));
-                    })
-                    .timeout(routeTimeout)
-//                    .doOnError(TimeoutException.class, ex -> log.error("ProxyFilter | event=timeout_operator_intercepted",
-//                            keyValue("routeId", matchedRoute.id()),
-//                            keyValue("upstream", upstream),
-//                            keyValue("exceptionClass", ex.getClass().getName())
-//                    ))
-                    .transformDeferred(CircuitBreakerOperator.of(upstreamCircuitBreaker))
+            return executeProxy(exchange, upstreamUri, cachedBody, routeTimeout, upstreamCircuitBreaker)
+                    .doOnSuccess(v -> log.info("ProxyFilter | event=proxy_success",
+                            keyValue("tenantId", tenantId),
+                            keyValue("upstream", upstream),
+                            keyValue("method", httpMethod),
+                            keyValue("statusCode", exchange.getResponse().getStatusCode() != null ? exchange.getResponse().getStatusCode().value() : 200)
+                    ))
                     .onErrorResume(TimeoutException.class, ex -> {
-                        log.warn("ProxyFilter | event=server_request_timeout",
+                        log.warn("ProxyFilter | event=upstream_request_timeout",
                                 keyValue("routeId", matchedRoute.id()),
                                 keyValue("upstream", upstream)
                         );
-                        return Mono.error(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Upstream request timed out"));
+                        return triggerFallbackOrError(exchange, matchedRoute, cachedBody, routeTimeout);
                     })
                     .onErrorResume(CallNotPermittedException.class, ex -> {
-                        log.warn("ProxyFilter | event=circuit_breaker_open",
+                        log.warn("ProxyFilter | event=upstream_circuit_breaker_open",
                                 keyValue("routeId", matchedRoute.id()),
                                 keyValue("upstream", upstream)
                         );
-                        return Mono.error(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Upstream circuit breaker open"));
+                        return triggerFallbackOrError(exchange, matchedRoute, cachedBody, routeTimeout);
                     })
-                    .doOnError(ex -> {
-                        if (!(ex instanceof ResponseStatusException)) {
-                            log.warn("ProxyFilter | event=upstream_failure",
-                                    keyValue("routeId", matchedRoute.id()),
-                                    keyValue("upstream", upstream),
-                                    keyValue("error", ex.getMessage())
-                            );
-                        }
-                    })
-                    .onErrorMap(ex -> !(ex instanceof ResponseStatusException), ex ->
-                            new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Upstream service unavailable"));
+                    .onErrorResume(ex -> !(ex instanceof ResponseStatusException), ex -> {
+                        log.warn("ProxyFilter | event=upstream_failure",
+                                keyValue("routeId", matchedRoute.id()),
+                                keyValue("upstream", upstream),
+                                keyValue("error", ex.getMessage())
+                        );
+                        return triggerFallbackOrError(exchange, matchedRoute, cachedBody, routeTimeout);
+                    });
         });
+    }
+
+    private Mono<Void> executeProxy(ServerWebExchange exchange, URI targetUri, Flux<DataBuffer> bodyFlux, Duration timeout, CircuitBreaker cb) {
+        return webClient
+                .method(exchange.getRequest().getMethod())
+                .uri(targetUri)
+                .headers(h -> {
+                    h.addAll(exchange.getRequest().getHeaders());
+                    h.remove("X-API-Key");
+                    h.remove("Host");
+                })
+                .body(BodyInserters.fromDataBuffers(bodyFlux))
+                .exchangeToMono(clientResponse -> {
+                    exchange.getResponse().setStatusCode(clientResponse.statusCode());
+                    exchange.getResponse().getHeaders().clear();
+                    exchange.getResponse().getHeaders().addAll(clientResponse.headers().asHttpHeaders());
+
+                    return exchange.getResponse().writeWith(
+                            clientResponse.bodyToFlux(DataBuffer.class).timeout(timeout)
+                    );
+                })
+                .timeout(timeout)
+                .transformDeferred(CircuitBreakerOperator.of(cb));
+    }
+
+    private Mono<Void> triggerFallbackOrError(ServerWebExchange exchange, Route matchedRoute, Flux<DataBuffer> cachedBody, Duration routeTimeout) {
+        if (matchedRoute.fallbackUrl() == null || matchedRoute.fallbackUrl().isBlank()) {
+            return Mono.error(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Upstream service unavailable"));
+        }
+
+        URI originalUri = exchange.getRequest().getURI();
+        URI fallbackUri = UriComponentsBuilder
+                .fromUriString(matchedRoute.fallbackUrl())
+                .replacePath(originalUri.getPath())
+                .replaceQuery(originalUri.getQuery())
+                .build(true)
+                .toUri();
+        String fallback = fallbackUri.toString();
+
+        CircuitBreaker fallbackCircuitBreaker = circuitBreakerRegistry.circuitBreaker("fallback-" + matchedRoute.id());
+
+        log.info("ProxyFilter | event=attempting_fallback_proxy",
+                keyValue("routeId", matchedRoute.id()),
+                keyValue("fallbackUrl", fallback)
+        );
+
+        return executeProxy(exchange, fallbackUri, cachedBody, routeTimeout, fallbackCircuitBreaker)
+                .onErrorResume(TimeoutException.class, ex -> {
+                    log.warn("ProxyFilter | event=fallback_request_timeout",
+                            keyValue("routeId", matchedRoute.id()),
+                            keyValue("fallbackUrl", fallback)
+                    );
+                    return Mono.error(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Fallback request timed out"));
+                })
+                .onErrorResume(CallNotPermittedException.class, ex -> {
+                    log.warn("ProxyFilter | event=fallback_circuit_breaker_open",
+                            keyValue("routeId", matchedRoute.id()),
+                            keyValue("fallbackUrl", fallback)
+                    );
+                    return Mono.error(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Fallback circuit breaker open"));
+                })
+                .onErrorResume(ex -> !(ex instanceof ResponseStatusException), ex -> {
+                    log.warn("ProxyFilter | event=fallback_failure",
+                            keyValue("routeId", matchedRoute.id()),
+                            keyValue("fallbackUrl", fallback),
+                            keyValue("error", ex.getMessage())
+                    );
+                    return Mono.error(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Fallback destination failure"));
+                });
     }
 }
