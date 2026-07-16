@@ -36,6 +36,11 @@ server:
 chowkidar:
   cache:
     ttl-ms: 30000
+  health:
+    interval-ms: 30000
+    timeout-ms: 3000
+    concurrency-limit: 10
+    failure-threshold: 3
   idempotency:
     ttl-minutes: 30
     lock-ttl-seconds: 30
