@@ -10,6 +10,7 @@ public class RouteMapper {
                 entity.id,
                 entity.path,
                 entity.upstreamUrl,
+                entity.timeoutMs,
                 entity.capacity,
                 entity.refillRate,
                 entity.volumeLimit,

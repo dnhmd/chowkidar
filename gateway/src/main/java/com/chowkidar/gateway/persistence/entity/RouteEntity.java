@@ -18,6 +18,8 @@ public class RouteEntity {
     public final String path;
     @Column("upstream_url")
     public final String upstreamUrl;
+    @Column("timeout_ms")
+    public final Integer timeoutMs;
     public final Integer capacity;
     @Column("refill_rate")
     public final Integer refillRate;
@@ -30,11 +32,12 @@ public class RouteEntity {
     @Column("created_at")
     public final Instant createdAt;
 
-    public RouteEntity(UUID tenantId, String path, String upstreamUrl, Integer capacity, Integer refillRate, Integer volumeLimit, Integer windowSize, Boolean requiresIdempotency) {
+    public RouteEntity(UUID tenantId, String path, String upstreamUrl, Integer timeoutMs, Integer capacity, Integer refillRate, Integer volumeLimit, Integer windowSize, Boolean requiresIdempotency) {
         this.id = null;
         this.tenantId = tenantId;
         this.path = path;
         this.upstreamUrl = upstreamUrl;
+        this.timeoutMs = timeoutMs;
         this.capacity = capacity;
         this.refillRate = refillRate;
         this.volumeLimit = volumeLimit;
@@ -44,11 +47,12 @@ public class RouteEntity {
     }
 
     @PersistenceCreator
-    public RouteEntity(UUID id, UUID tenantId, String path, String upstreamUrl, Integer capacity, Integer refillRate, Integer volumeLimit, Integer windowSize, Boolean requiresIdempotency, Instant createdAt) {
+    public RouteEntity(UUID id, UUID tenantId, String path, String upstreamUrl, Integer timeoutMs, Integer capacity, Integer refillRate, Integer volumeLimit, Integer windowSize, Boolean requiresIdempotency, Instant createdAt) {
         this.id = id;
         this.tenantId = tenantId;
         this.path = path;
         this.upstreamUrl = upstreamUrl;
+        this.timeoutMs = timeoutMs;
         this.capacity = capacity;
         this.refillRate = refillRate;
         this.volumeLimit = volumeLimit;
