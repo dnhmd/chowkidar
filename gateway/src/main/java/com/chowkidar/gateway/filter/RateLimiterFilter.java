@@ -9,6 +9,7 @@ import com.chowkidar.gateway.ratelimit.model.RateLimitResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.ServerHttpResponse;
@@ -31,13 +32,18 @@ public class RateLimiterFilter implements WebFilter {
     private final RateLimiter slidingWindowLimiter;
     private final RateLimiter localRateLimiter;
 
+    private final Integer slowRequestThresholdMs;
+
     public RateLimiterFilter(
             @Qualifier("tokenBucketLimiter") RateLimiter tokenBucketLimiter,
             @Qualifier("slidingWindowLimiter") RateLimiter slidingWindowLimiter,
-            @Qualifier("localRateLimiter") RateLimiter localRateLimiter) {
+            @Qualifier("localRateLimiter") RateLimiter localRateLimiter,
+            @Value("${chowkidar.proxy.slow-request-threshold-ms:30}") Integer slowRequestThresholdMs
+    ) {
         this.tokenBucketLimiter = tokenBucketLimiter;
         this.slidingWindowLimiter = slidingWindowLimiter;
         this.localRateLimiter = localRateLimiter;
+        this.slowRequestThresholdMs = slowRequestThresholdMs;
     }
 
     @Override
@@ -108,6 +114,12 @@ public class RateLimiterFilter implements WebFilter {
                                 keyValue("durationMs", durationMs),
                                 keyValue("signal", signal.name())
                         );
+                        if (durationMs >= slowRequestThresholdMs)
+                            log.warn("RateLimiterFilter | event=slow_request",
+                                    keyValue("tenantId", tenant.id()),
+                                    keyValue("path", requestedPath),
+                                    keyValue("durationMs", durationMs)
+                            );
                     });
         });
     }
