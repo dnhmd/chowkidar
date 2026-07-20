@@ -40,6 +40,12 @@ This layout created concurrent performance bottlenecks. Although Redis Lua scrip
 
 Separating these fields into independent key spaces (`ratelimit:velocity:...` and `ratelimit:volume:...`) creates isolated implicit locks. This key layout allows both Lua scripts to execute concurrently using `Mono.zip` without competing for the same memory address. The small network cost of dispatching two operations instead of one is offset by eliminating the sequential script bottleneck.
 
+### Why IP Rule Decisions Are Cached Per IP Rather Than Per Tenant
+
+Caching all rules for a tenant and re-evaluating on every request would require deserializing and iterating the full rule set on each cache hit. Caching the evaluated decision per IP address reduces the cache hit path to a single Redis GET and a string comparison.
+
+The tradeoff is cache granularity — a rule change invalidates only the specific IP entries affected, not the entire tenant rule set. Explicit invalidation on mutations handles this correctly without requiring a full tenant cache flush.
+
 ---
 
 ## Security & Reliability Architecture
@@ -106,6 +112,12 @@ Adding it to `TenantContext` or `Tenant` conflates request-scoped authentication
 
 Reactor context is the correct scope for request-scoped metadata that needs to travel downstream without modifying domain objects. It mirrors how `TenantContext` itself and the matched `Route` are propagated — through the reactive context, not through method parameters or modified domain state.
 
+### Why `HEAD` for Health Probes Over `GET`
+
+`GET` requests on application endpoints can have side effects — triggering reads, incrementing counters, invoking downstream calls. For a health probe fired every 30 seconds across all routes, `GET` requests produce unnecessary upstream load and pollute application logs with synthetic traffic.
+
+`HEAD` requests return headers and status codes without a response body and conventionally have no side effects. They are the correct tool for liveness checks where the goal is status code confirmation, not response body content.
+
 ---
 
 ## Pipeline Integration & Filter Mechanics
@@ -141,6 +153,18 @@ To prevent memory leaks, the decorator explicitly releases the original data buf
 Enforcing universal idempotency validation across all mutating actions would require clients to append an `X-Idempotency-Key` header to every single `POST`, `PUT`, and `PATCH` request. For lightweight ingestion endpoints or analytics services that do not require deduplication, this design places an unnecessary integration burden on client applications.
 
 Adding a `requires_idempotency` boolean property to the routing configuration allows engineering teams to target deduplication explicitly where it matters most, such as payment webhooks, order creation paths, or account provisioning forms. Standard ingestion paths process traffic directly, completely bypassing the memory overhead of Redis lock evaluations and response caching routines.
+
+### Why Timeout Placement Before `transformDeferred` Matters
+
+The Resilience4j circuit breaker operator wraps whatever `Publisher` it is applied to. If `TimeoutException` fires outside the CB operator boundary, after `transformDeferred`, the CB never sees it. It records the call as successful up to the point the operator completed, then the timeout fires externally.
+
+Placing `.timeout()` before `.transformDeferred(CircuitBreakerOperator.of(...))` ensures the exception propagates through the CB's internal subscriber chain. The CB increments its failure counter, and repeated timeouts eventually trip the breaker open the same as connection failures. This is the only placement where timeout and circuit breaker interact correctly.
+
+### Why Consecutive Failure Threshold Over Single-Failure State Flip
+
+A single failed probe can result from a transient network blip, a brief upstream restart, or a DNS hiccup — none of which indicate genuine upstream degradation. Flipping route state on a single failure produces false positives that trigger fallback routing unnecessarily and generate misleading operator alerts.
+
+Requiring N consecutive failures before marking a route DOWN filters out transient events while still catching genuine degradation promptly. Three consecutive failures at a 30-second probe interval means a route is marked DOWN within 90 seconds of a real outage — fast enough to be operationally useful without being reactive to noise.
 
 ---
 

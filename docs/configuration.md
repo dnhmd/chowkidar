@@ -63,6 +63,33 @@ These properties establish the default traffic enforcement matrix applied when a
 
 **Engineering Alignment:** Match the `lock-ttl-seconds` property to exceed your slowest upstream backend's maximum expected processing latency. If a target backend requires 25 seconds to complete a transaction and the lock expires after 30 seconds, concurrent duplicates hitting the gateway within that 25-second window will receive a clean 409 Conflict rejection. If the lock expires before the backend finishes processing, a subsequent duplicate request will bypass the idempotency layer, creating an accidental duplicate execution.
 
+## Route Timeout
+
+| Configuration Property               | Environment Variable       | Default Value | Description                                                                                            |
+|--------------------------------------|----------------------------|---------------|--------------------------------------------------------------------------------------------------------|
+| `chowkidar.route.default-timeout-ms` | `ROUTE_DEFAULT_TIMEOUT_MS` | `3000`        | Default upstream request timeout in milliseconds applied to routes that do not specify a custom value. |
+
+## Slow Request Detection
+
+| Configuration Property                      | Environment Variable        | Default Value | Description                                                                                                   |
+|---------------------------------------------|-----------------------------|---------------|---------------------------------------------------------------------------------------------------------------|
+| `chowkidar.proxy.slow-request-threshold-ms` | `SLOW_REQUEST_THRESHOLD_MS` | `2000`        | Requests exceeding this duration in milliseconds emit a structured WARN log event for operator investigation. |
+
+## Health Check Scheduler
+
+| Configuration Property               | Default Value | Description                                                            |
+|--------------------------------------|---------------|------------------------------------------------------------------------|
+| `chowkidar.health.interval-ms`       | `30000`       | Probe interval in milliseconds. All routes are probed on this cadence. |
+| `chowkidar.health.timeout-ms`        | `3000`        | Maximum wait time per probe before marking the result as a failure.    |
+| `chowkidar.health.concurrency-limit` | `10`          | Maximum number of concurrent probes across all routes per tick.        |
+| `chowkidar.health.failure-threshold` | `3`           | Number of consecutive failed probes before a route is marked DOWN.     |
+
+## IP Filter Cache
+
+| Configuration Property             | Default Value | Description                                                                                                                                                       |
+|------------------------------------|---------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `chowkidar.ip-filter.cache-ttl-ms` | `1800000`     | TTL in milliseconds for cached IP rule decisions in Redis. Defaults to 30 minutes. Cache entries are invalidated immediately on rule mutations regardless of TTL. |
+
 ## Fault Tolerance (Circuit Breakers)
 
 Resilience boundaries are declared as named target instances under the central `resilience4j.circuitbreaker.instances` configuration node.

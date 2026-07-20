@@ -171,13 +171,15 @@ POST /management/tenants/{tenantId}/routes
 
 Rate control metrics default to sensible platform values if omitted during route configuration setup:
 
-| Field | Default | Description                                                       |
-|---|---|-------------------------------------------------------------------|
-| `capacity` | 100 | Token bucket maximum depth, bounds rapid traffic bursts.          |
-| `refillRate` | 10 | Tokens added per single second interval, sets sustained velocity. |
-| `volumeLimit` | 10000 | Absolute request execution ceiling per active rolling window.              |
-| `windowSize` | 3600 | Duration of the shifting consumption window calculated in seconds.                               |
-| `requiresIdempotency` | false | Enforces structural `X-Idempotency-Key` validation on incoming mutating payloads.       |
+| Field                 | Default | Description                                                                                           |
+|-----------------------|---------|-------------------------------------------------------------------------------------------------------|
+| `fallbackUrl`         | null    | Optional secondary upstream URL. Activated when the primary circuit breaker opens or a timeout fires. |
+| `capacity`            | 100     | Token bucket maximum depth, bounds rapid traffic bursts.                                              |
+| `refillRate`          | 10      | Tokens added per single second interval, sets sustained velocity.                                     |
+| `volumeLimit`         | 10000   | Absolute request execution ceiling per active rolling window.                                         |
+| `windowSize`          | 3600    | Duration of the shifting consumption window calculated in seconds.                                    |
+| `requiresIdempotency` | false   | Enforces structural `X-Idempotency-Key` validation on incoming mutating payloads.                     |
+| `timeoutMs`           | 3000    | Maximum upstream response time in milliseconds before the request is aborted with 503.                |
 
 **Response (201 Created):**
 ```json
@@ -185,6 +187,7 @@ Rate control metrics default to sensible platform values if omitted during route
   "id": "ea7dcf9d-d870-460e-a8a5-ba7295ef7a1e",
   "path": "/echo",
   "upstreamUrl": "http://your-service:8080",
+  "fallbackUrl": "http://your-fallback:8080",
   "capacity": 100,
   "refillRate": 10,
   "volumeLimit": 10000,
@@ -212,6 +215,7 @@ Returns an index of all configured routing entries scoped under a target parent 
     "id": "ea7dcf9d-d870-460e-a8a5-ba7295ef7a1e",
     "path": "/echo",
     "upstreamUrl": "http://your-service:8080",
+    "fallbackUrl": "http://your-fallback:8080",
     "capacity": 100,
     "refillRate": 10,
     "volumeLimit": 10000,
@@ -233,10 +237,37 @@ Fetches details for a specific route configuration.
 
 **Exception Rules**: Emits a 404 error if either the parent tenant profile or the specified route entry is missing.
 
-### Update Upstream URL
+### Get Route Health
 
 ```
-PATCH /management/tenants/{tenantId}/routes/{routeId}/upstream
+GET /management/tenants/{tenantId}/routes/health
+```
+
+Returns the current health status of all routes for the tenant, sourced from the health check scheduler's Redis state store.
+
+**Response (200 OK):**
+```json
+[
+  {
+    "routeId": "ea7dcf9d-d870-460e-a8a5-ba7295ef7a1e",
+    "path": "/echo",
+    "upstreamUrl": "http://your-service:8080",
+    "fallbackUrl": "http://your-fallback:8080",
+    "status": "UP",
+    "statusCode": 200,
+    "timestamp": 1784201475337
+  }
+]
+```
+
+`status` values: `UP`, `DOWN`, `UNKNOWN` (no probe result yet).
+
+`timestamp` is the Unix epoch millisecond of the last probe that produced the current status.
+
+### Update URL
+
+```
+PATCH /management/tenants/{tenantId}/routes/{routeId}/url
 ```
 
 Modifies the reverse proxy target destination URL for a specified route path. This configuration change is safe to execute at runtime because destination values are evaluated dynamically at proxy resolution time rather than being baked into Redis key states.
@@ -244,7 +275,8 @@ Modifies the reverse proxy target destination URL for a specified route path. Th
 **Request Payload:**
 ```json
 {
-  "upstreamUrl": "http://new-service:8080"
+  "upstreamUrl": "http://new-service:8080",
+  "fallbackUrl": "http://your-fallback:8080"
 }
 ```
 
@@ -291,6 +323,25 @@ Toggles active idempotency verification checks on or off for a chosen path. When
 
 **Response (200 OK)**: Returns the fully updated route data model object.
 
+### Update Timeout
+
+```
+PATCH /management/tenants/{tenantId}/routes/{routeId}/timeout
+```
+
+Updates the upstream request timeout for a specific route.
+
+**Request Payload:**
+```json
+{
+  "timeoutMs": 5000
+}
+```
+
+**Response (200 OK)**: Returns the fully updated route data model object.
+
+**Pipeline Side Effects**: Triggers cache invalidation for the tenant context.
+
 ### Delete Route
 
 ```
@@ -302,6 +353,95 @@ Removes a route path from a tenant's profile configuration.
 **Response (204 No Content)**
 
 **Pipeline Side Effects:** Drops the active routing details from the internal memory cache layer. Active tracking limits and window footprints preserved inside Redis are not aggressively purged; they expire naturally based on the TTL windows applied during the final Lua evaluation loop.
+
+---
+
+## IP Rules
+
+IP rules control which client IP addresses can access the gateway for a specific tenant. Rules are evaluated per request using a precedence model: BLOCK always wins, and the presence of any ALLOW rule activates allowlist mode where only listed IPs are permitted.
+
+### Create IP Rule
+
+```
+POST /management/tenants/{tenantId}/ip-rules
+```
+
+**Request Payload:**
+```json
+{
+  "ipAddress": "192.168.1.100",
+  "action": "BLOCK"
+}
+```
+
+Valid `action` values: `ALLOW`, `BLOCK`.
+
+**Response (201 Created):**
+```json
+{
+  "id": "0a4acd3f-30f9-4b96-8658-190848c7f543",
+  "ipAddress": "192.168.1.100",
+  "action": "BLOCK"
+}
+```
+
+**Pipeline Side Effects:** Immediately invalidates the Redis cache entry for this IP and tenant combination.
+
+### List IP Rules
+
+```
+GET /management/tenants/{tenantId}/ip-rules
+```
+
+Returns all IP rules configured for the tenant.
+
+**Response (200 OK):**
+```json
+[
+  {
+    "id": "0a4acd3f-30f9-4b96-8658-190848c7f543",
+    "ipAddress": "192.168.1.100",
+    "action": "BLOCK"
+  }
+]
+```
+
+### Get IP Rule
+
+```
+GET /management/tenants/{tenantId}/ip-rules/{id}
+```
+
+**Response (200 OK):** Returns a single IP rule.
+
+### Update IP Rule
+
+```
+PATCH /management/tenants/{tenantId}/ip-rules/{id}
+```
+
+Updates the action for an existing rule.
+
+**Request Payload:**
+```json
+{
+  "action": "ALLOW"
+}
+```
+
+**Response (200 OK):** Returns the updated rule.
+
+**Pipeline Side Effects:** Immediately invalidates the Redis cache entry for the affected IP.
+
+### Delete IP Rule
+
+```
+DELETE /management/tenants/{tenantId}/ip-rules/{id}
+```
+
+**Response (204 No Content)**
+
+**Pipeline Side Effects:** Immediately invalidates the Redis cache entry for the affected IP.
 
 ---
 
@@ -337,6 +477,8 @@ Deduplicated responses served directly from the gateway caching tier append a tr
 |-----------------------|---------------------------------------------------------------------------------------|
 | `X-Idempotent-Replay` | Evaluates to `true`, confirms the payload was returned directly from the Redis layer. |
 
+For requests that exceed the slow request threshold, a structured WARN log is emitted server-side. No additional response header is added to the client. Slow request detection is an operator-facing signal, not a client-facing one.
+
 ### Processing Idempotence
 
 For routes configured with `requiresIdempotency: true`, append a unique tracking value to handle safe mutation tasks:
@@ -367,15 +509,15 @@ All system exceptions and validation rejections return a unified JSON layout:
 }
 ```
 
-| HTTP Status             | Triggering Platform Condition                                                                          |
-|-------------------------|--------------------------------------------------------------------------------------------------------|
-| 400 Bad Request         | Request data validation error or missing an expected X-Idempotency-Key header.                         |
-| 401 Unauthorized        | The `X-API-Key` tracker is missing or failed cryptographic validation checks.                          |
-| 404 Not Found           | No matching route path is registered for the incoming request line.                                    |
-| 409 Conflict            | A concurrent idempotent execution block using the same key is already running.                         |
-| 429 Too Many Requests   | Consumption thresholds have been breached across velocity or volume boundaries.                        |
-| 503 Service Unavailable | Target upstream backend application is unresponsive or relational databases are offline.               |
-| 403 Forbidden           | The tenant account is explicitly revoked, or the presented API key has passed its grace period expiry. |
+| HTTP Status             | Triggering Platform Condition                                                            |
+|-------------------------|------------------------------------------------------------------------------------------|
+| 400 Bad Request         | Request data validation error or missing an expected X-Idempotency-Key header.           |
+| 401 Unauthorized        | The `X-API-Key` tracker is missing or failed cryptographic validation checks.            |
+| 404 Not Found           | No matching route path is registered for the incoming request line.                      |
+| 409 Conflict            | A concurrent idempotent execution block using the same key is already running.           |
+| 429 Too Many Requests   | Consumption thresholds have been breached across velocity or volume boundaries.          |
+| 503 Service Unavailable | Target upstream backend application is unresponsive or relational databases are offline. |
+| 403 Forbidden           | The client IP address is explicitly blocked or not present on the tenant's allowlist.    |
 
 ---
 

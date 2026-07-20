@@ -179,15 +179,75 @@ Sprint 3 introduced structured logging inside `RateLimiterFilter` via `doFinally
 
 ---
 
-## Current Filter Chain (Sprint 3)
+## Sprint 5: Traffic Control, Resilience, and Health Monitoring
+
+### Per-Route Timeout and Query Parameter Forwarding
+
+Sprint 5 introduced configurable timeouts per route, enforced in `ProxyFilter` using `WebClient.timeout(Duration)`. The timeout value is stored in the database and flows through the domain model from `RouteEntity` to `Route` to `ProxyFilter` at request time.
+
+Timeout placement relative to the Resilience4j circuit breaker operator is significant. Placing `.timeout()` before `.transformDeferred(CircuitBreakerOperator.of(...))` ensures that `TimeoutException` propagates into the CB's failure tracking window. Repeated timeouts increment the failure counter and eventually trip the breaker open, the same as connection failures. Placing it after `transformDeferred` would make the CB invisible to timeout events.
+
+A latent query parameter forwarding bug was discovered and fixed during timeout testing. The original upstream URI was constructed via string concatenation, discarding the query string entirely. The fix uses `UriComponentsBuilder` to compose the upstream URI from the base URL, original path, and original query string. All tenant requests with query parameters were silently broken before this fix.
+
+### Fallback URL Routing
+
+Each route can now declare an optional `fallback_url`. When the primary upstream circuit breaker opens or a timeout fires, the gateway attempts the fallback URL before returning 503.
+
+The fallback runs through the same `executeProxy` helper as the primary, with its own dedicated circuit breaker instance named `fallback-{routeId}`. The isolation is intentional as a degraded fallback should not affect the primary CB state, and a recovering primary should not be blocked by a failing fallback.
+
+Request body replay across the primary and fallback paths requires the request body to be cached before the first proxy attempt. `exchange.getRequest().getBody().cache()` produces a replayable `Flux<DataBuffer>` that both paths consume independently without re-reading from the closed request stream.
+
+### Health Check Scheduler
+
+The health check scheduler addresses a gap the circuit breaker cannot fill: proactive upstream visibility. The CB is reactive, it trips after failures accumulate. The scheduler is proactive, it detects degradation before real traffic hits a broken upstream.
+
+The scheduler architecture has three components:
+
+`RouteHealthRegistry`: A `ConcurrentHashMap<UUID, RouteHealthEntry>` holding all active routes. Populated on startup via `ApplicationListener<ApplicationReadyEvent>` and kept current by `RouteService` mutations. The registry eliminates per-tick database queries.
+
+`HealthCheckScheduler`: A `Flux.interval()` stream that iterates the registry on each tick and fires a `HEAD` probe to `{upstreamUrl}{path}` for each route. `HEAD` was chosen over `GET` to avoid side effects on the upstream. Only 2xx responses are considered healthy.
+
+Redis state store: Health status is persisted under `route:health:{routeId}` with a TTL of `3 × intervalMs`. The scheduler reads previous state before writing new state and only logs on transitions (`UP → DOWN` or `DOWN → UP`), keeping the log stream clean during steady operation.
+
+A consecutive failure threshold prevents transient blips from flipping route state. In-memory `AtomicInteger` counters track consecutive failures per route. The counter resets immediately on any successful probe.
+
+### IP Allowlist and Blocklist
+
+IP filtering adds a new `IpFilterFilter` at `@Order(2)`, sitting after context resolution and before rate limiting. The filter evaluates the client IP against per-tenant rules stored in a `tenant_ip_rules` table.
+
+The evaluation model follows explicit precedence:
+
+```
+No rules          → ALLOW
+BLOCK rule match  → BLOCK (always wins)
+ALLOW rules exist → allowlist mode: only listed IPs pass
+No match          → ALLOW (blocklist mode) or BLOCK (allowlist mode)
+```
+
+Evaluated decisions are cached in Redis with a 30-minute TTL. Cache entries are invalidated explicitly on rule mutations so changes take effect immediately without waiting for TTL expiry.
+
+Client IP extraction prefers `X-Forwarded-For` for requests behind proxies, falling back to `getRemoteAddress()`. IPv6 loopback is normalized to `127.0.0.1`.
+
+### Response Header Mutation Fix
+
+Adding `IpFilterFilter` exposed a latent race between `RateLimiterFilter` setting `RateLimit-*` headers and `ProxyFilter` calling `exchange.getResponse().getHeaders().clear()` before copying upstream headers. The `clear()` wiped the rate limit headers, and `addAll()` then locked the header map as read-only, causing any subsequent write to throw `UnsupportedOperationException`.
+
+The fix removes `clear()` entirely and replaces `addAll()` with a selective header copy that skips `Transfer-Encoding` and `Content-Length`. Gateway-set headers are preserved, upstream headers are added on top, and the response never enters a read-only state mid-pipeline.
+
+`GlobalExceptionHandler` was also hardened with an `isCommitted()` guard. If the response is already written when an exception propagates, the handler returns `Mono.empty()` rather than attempting to overwrite a committed response. 
+
+---
+
+## Current Filter Chain (Sprint 5)
 
 The active filter pipeline functions with the following configuration:
 
 ```
 ContextResolutionFilter  (@Order 1)  — Executes HMAC credential checks and loads TenantContext
-RateLimiterFilter        (@Order 2)  — Evaluates token bucket and sliding window metrics with JVM fallbacks
-IdempotencyFilter        (@Order 3)  — Enforces distributed locking and manages response replay routines
-ProxyFilter              (@Order 4)  — Standardizes WebClient routing and applies per-route circuit breakers
+IpFilterFilter           (@Order 2)  — Checks client IP against tenant allow/block rules
+RateLimiterFilter        (@Order 3)  — Evaluates token bucket and sliding window metrics with JVM fallbacks
+IdempotencyFilter        (@Order 4)  — Enforces distributed locking and manages response replay routines
+ProxyFilter              (@Order 5)  — Standardizes WebClient routing and applies per-route circuit breakers
 ```
 
 Every component leverages the reactive `ReactorContext` map to share state properties cleanly with downstream elements. `ContextResolutionFilter` populates the core `TenantContext`. The `RateLimiterFilter` resolves and writes the target `Route` properties. The `IdempotencyFilter` inspects both contexts without mutating the stream, and the final `ProxyFilter` extracts the validated `Route` data to direct the outbound `WebClient` connection.
