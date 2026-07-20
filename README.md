@@ -26,22 +26,26 @@ Every request flows through a non-blocking, reactive filter chain that handles t
           |     Load TenantContext from cache |
           |     Cache miss -> Postgres (CB)   |
           |                                   |
-          |  2. RateLimiterFilter             |
+          |  2. IpFilterFilter                |
+          |     Load TenantContext            |
+          |     Cache miss -> Postgres        |
+          |     IP Rule -> BLOCK ->  403      |   
+          |                                   |  
+          |  3. RateLimiterFilter             |
           |     Token Bucket  -> Redis (Lua)  |
           |     Sliding Window -> Redis (Lua) |
           |     Redis down -> Local JVM       |
           |     Rejected -> 429               |
           |                                   |
-          |  3. IdempotencyFilter             |
+          |  4. IdempotencyFilter             |
           |     Distributed lock via Redis    |
           |     Replay cached response        |
           |     Conflict -> 409               |
           |                                   |
-          |  4. ProxyFilter                   |
+          |  5. ProxyFilter                   |
           |     Forward via WebClient         |
           |     Per-route circuit breaker     |
           |                                   |
-          |  doFinally -> structured log      |
           +-----------------------------------+
                           |
                           v
@@ -156,10 +160,10 @@ Performance profiles captured using k6 against the active gateway path, executin
 
 Granular breakdown logs detailing development milestones, infrastructure discoveries, and framework iterations reside within `/sprints`.
 
-| Sprint   | Focus                                                                                                                                                                            | Status      |
-|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------|
-| Sprint 1 | Reactive filter architecture, Token Bucket and Sliding Window Lua scripts, distributed Redis caching, WebClient proxy routing.                                                   | Complete    |
-| Sprint 2 | Centralized Configuration API, isolated per-route circuit breakers, local JVM fallback limiters, global data validation and uniform exception responses.                         | Complete    |
-| Sprint 3 | HMAC API key hashing, distributed idempotency filters, structured logging layouts, Actuator monitoring endpoints, Testcontainers integration testing, k6 performance validation. | Complete    |
-| Sprint 4 | API key rotation with grace period enforcement, tenant revocation, structured logging across filter chain and service layer.                                                     | Complete    |
-| Sprint 5 | Timeout policies, fallback URLs, upstream health checks, slow request detection, IP allowlist/blocklist, integration test coverage.                                              | In Progress |
+| Sprint   | Focus                                                                                                                                                                                                            | Status      |
+|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------|
+| Sprint 1 | Reactive filter architecture, Token Bucket and Sliding Window Lua scripts, distributed Redis caching, WebClient proxy routing.                                                                                   | Complete    |
+| Sprint 2 | Centralized Configuration API, isolated per-route circuit breakers, local JVM fallback limiters, global data validation and uniform exception responses.                                                         | Complete    |
+| Sprint 3 | HMAC API key hashing, distributed idempotency filters, structured logging layouts, Actuator monitoring endpoints, Testcontainers integration testing, k6 performance validation.                                 | Complete    |
+| Sprint 5 | Per-route timeout enforcement, fallback URL routing with dedicated circuit breakers, upstream health check scheduler, slow request detection, IP allowlist/blocklist per tenant, query parameter forwarding fix. | Complete    |
+| Sprint 6 | Dockerfile, docker-compose, integration tests, public deployment, admin portal, Prometheus + Grafana.                                                                                                            | In Progress |
