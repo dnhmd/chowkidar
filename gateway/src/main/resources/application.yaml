@@ -44,6 +44,8 @@ chowkidar:
   idempotency:
     ttl-minutes: 30
     lock-ttl-seconds: 30
+  ip-filter:
+    cache-ttl-ms: 1800000
   proxy:
     slow-request-threshold-ms: 2000
   rate-limit:
