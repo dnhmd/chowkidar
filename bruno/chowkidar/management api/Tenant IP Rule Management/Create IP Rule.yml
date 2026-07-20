@@ -1,0 +1,26 @@
+info:
+  name: Create IP Rule
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{baseUrl}}/management/tenants/:tenantId/ip-rules"
+  params:
+    - name: tenantId
+      value: bf7121c8-8961-4115-8463-315f360858b3
+      type: path
+  body:
+    type: json
+    data: |-
+      {
+        "ipAddress": "0:0:0:0:0:0:0:1",
+        "action": "BLOCK"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

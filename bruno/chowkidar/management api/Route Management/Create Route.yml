@@ -1,0 +1,33 @@
+info:
+  name: Create Route
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{baseUrl}}/management/tenants/:tenantId/routes"
+  params:
+    - name: tenantId
+      value: bf7121c8-8961-4115-8463-315f360858b3
+      type: path
+  body:
+    type: json
+    data: |-
+      {
+        "path": "/echo",
+        "upstreamUrl": "http://127.0.0.1:8081",
+        "fallbackUrl": "http://127.0.0.1:8082",
+        "timeoutMs": 3000,
+        "capacity": 100,
+        "refillRate": 10,
+        "volumeLimit": 10000,
+        "windowSize": 3600,
+        "requiresIdempotency": false
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

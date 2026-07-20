@@ -1,0 +1,25 @@
+info:
+  name: Update Tenant
+  type: http
+  seq: 4
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/management/tenants/:id"
+  params:
+    - name: id
+      value: c09f43a0-83b6-4c48-bc0b-850e8dbcdd86
+      type: path
+  body:
+    type: json
+    data: |-
+      {
+          "name": "tenant-test"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,19 @@
+info:
+  name: Get All Routes
+  type: http
+  seq: 2
+
+http:
+  method: GET
+  url: "{{baseUrl}}/management/tenants/:tenantId/routes"
+  params:
+    - name: tenantId
+      value: bf7121c8-8961-4115-8463-315f360858b3
+      type: path
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

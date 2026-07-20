@@ -1,0 +1,22 @@
+info:
+  name: Delete IP Rule
+  type: http
+  seq: 4
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/management/tenants/:tenantId/ip-rules/:ruleId"
+  params:
+    - name: tenantId
+      value: bf7121c8-8961-4115-8463-315f360858b3
+      type: path
+    - name: ruleId
+      value: ffcbb4ef-57f6-4a4f-90bb-3d873479a653
+      type: path
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
