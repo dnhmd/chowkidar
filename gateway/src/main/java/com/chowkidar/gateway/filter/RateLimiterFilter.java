@@ -23,7 +23,7 @@ import reactor.core.publisher.Mono;
 import static net.logstash.logback.argument.StructuredArguments.keyValue;
 
 @Component
-@Order(2)
+@Order(3)
 public class RateLimiterFilter implements WebFilter {
 
     private static final Logger log = LoggerFactory.getLogger(RateLimiterFilter.class);

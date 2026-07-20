@@ -34,7 +34,7 @@ import java.util.UUID;
 import static net.logstash.logback.argument.StructuredArguments.keyValue;
 
 @Component
-@Order(3)
+@Order(4)
 public class IdempotencyFilter implements WebFilter {
 
     private static final Logger log = LoggerFactory.getLogger(IdempotencyFilter.class);

@@ -1,6 +1,5 @@
 package com.chowkidar.gateway.exception;
 
-import com.chowkidar.gateway.filter.ContextResolutionFilter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -35,6 +34,11 @@ public class GlobalExceptionHandler implements ErrorWebExceptionHandler {
 
     @Override
     public Mono<Void> handle(ServerWebExchange exchange, Throwable ex) {
+
+        if (exchange.getResponse().isCommitted()) {
+            return Mono.empty();
+        }
+
         HttpStatus httpStatus;
         String message;
 

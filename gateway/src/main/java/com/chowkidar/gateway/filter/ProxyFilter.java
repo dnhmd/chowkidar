@@ -31,7 +31,7 @@ import java.util.concurrent.TimeoutException;
 import static net.logstash.logback.argument.StructuredArguments.keyValue;
 
 @Component
-@Order(4)
+@Order(5)
 public class ProxyFilter implements WebFilter {
 
     private static final Logger log = LoggerFactory.getLogger(ProxyFilter.class);
@@ -119,8 +119,12 @@ public class ProxyFilter implements WebFilter {
                 .body(BodyInserters.fromDataBuffers(bodyFlux))
                 .exchangeToMono(clientResponse -> {
                     exchange.getResponse().setStatusCode(clientResponse.statusCode());
-                    exchange.getResponse().getHeaders().clear();
-                    exchange.getResponse().getHeaders().addAll(clientResponse.headers().asHttpHeaders());
+                    clientResponse.headers().asHttpHeaders().forEach((key, values) -> {
+                        if (!key.equalsIgnoreCase("Transfer-Encoding") &&
+                                !key.equalsIgnoreCase("Content-Length")) {
+                            exchange.getResponse().getHeaders().addAll(key, values);
+                        }
+                    });
 
                     return exchange.getResponse().writeWith(
                             clientResponse.bodyToFlux(DataBuffer.class).timeout(timeout)
