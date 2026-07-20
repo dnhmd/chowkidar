@@ -45,7 +45,7 @@ public class RouteController {
         return routeService.getAllRouteHealthByTenant(tenantId);
     }
 
-    @PatchMapping("/{id}/upstream")
+    @PatchMapping("/{id}/url")
     public Mono<ResponseEntity<RouteResponse>> updateUrl(@PathVariable("tenantId") UUID tenantId, @PathVariable("id") UUID id, @Valid @RequestBody UpdateRouteUrlRequest updateRouteUrlRequest) {
         return routeService.updateUrl(tenantId, id, updateRouteUrlRequest)
                 .map(routeResponse -> ResponseEntity.status(HttpStatus.OK).body(routeResponse));
