@@ -1,7 +1,0 @@
-info:
-  name: Tenant IP Rule Management
-  type: folder
-  seq: 2
-
-request:
-  auth: inherit
