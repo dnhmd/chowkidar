@@ -22,6 +22,28 @@ services:
       - redis_data:/data
     networks:
       - chowkidar-network
+
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: chowkidar-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      DB_URL: r2dbc:postgresql://chowkidar-postgres:5432/chowkidar_db
+      M_DB_URL: jdbc:postgresql://chowkidar-postgres:5432/chowkidar_db
+      DB_USERNAME: chowkidar_user
+      DB_PASSWORD: chowkidar_password
+      REDIS_HOST: chowkidar-redis
+      REDIS_PORT: 6379
+      HMAC_SECRET: change-this-in-production
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - chowkidar-network
+
 volumes:
   postgres_data:
   redis_data:
