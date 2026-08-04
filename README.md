@@ -1,18 +1,62 @@
 # Chowkidar
 
-A self-hostable API gateway designed to provide reliable control over your traffic layer. It features robust distributed rate limiting capabilities and idempotency support, offering a straightforward, self-managed solution without unnecessary complexity.
-
-Every request flows through a non-blocking, reactive filter chain that handles tenant resolution, parallel Redis rate limit validation, idempotency deduplication, and WebClient proxying, keeping the execution path fast and asynchronous without ever locking an event loop thread. Rate limits run inside atomic Lua scripts on the Redis tier, ensuring accurate traffic calculations across multiple concurrent gateway nodes.
+A self-hosted API gateway that gives small engineering teams production-grade traffic controls without enterprise-grade operational complexity.
 
 ![Java](https://img.shields.io/badge/Java-21-orange?style=flat-square&logo=openjdk)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5-brightgreen?style=flat-square&logo=springboot)
 ![Redis](https://img.shields.io/badge/Redis-7.2-red?style=flat-square&logo=redis)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue?style=flat-square&logo=postgresql)
 ![Resilience4j](https://img.shields.io/badge/Resilience4j-2.2-green?style=flat-square)
+![Live Demo](https://img.shields.io/badge/Live%20Demo-Railway-purple?style=flat-square)
+
+**[Live Demo](https://chowkidar-production.up.railway.app)**
 
 ---
 
-## Architecture
+## The Problem
+
+Most internal APIs start simple. Then requirements pile up.
+
+> "We need API keys."  
+> "We need rate limiting."  
+> "Customers keep retrying payments."  
+> "We should block abusive IPs."  
+> "This service keeps timing out and taking everything down with it."
+
+Teams end up rebuilding the same concerns inside every microservice, or adopting an enterprise gateway that is significantly more complex than their actual needs.
+
+Chowkidar centralizes those concerns into one lightweight gateway that a small team can deploy, understand, and modify without becoming gateway specialists.
+
+---
+
+## Who This Is For
+
+Consider Sarah. She is the only backend engineer at a startup with six developers. They have five services running in Docker. Customers are beginning to consume their APIs directly. Suddenly the team needs API keys, rate limiting, payment idempotency, IP allowlists, and basic resiliency when downstream services fail. They don't have a platform team, a Kubernetes cluster, or time to operate an enterprise gateway. They want one service they can understand and extend themselves.
+
+Chowkidar is designed for:
+
+- Solo developers and small startups
+- SaaS teams with roughly 2 to 15 engineers
+- Teams self-hosting their infrastructure
+- Engineers comfortable with Docker and REST APIs who don't want to become gateway specialists
+
+---
+
+## Why Not Kong, Traefik, or Nginx?
+
+**Kong** is an excellent enterprise gateway with plugins, clustering, authentication providers, service mesh integration, Kubernetes support, and much more. If your organization needs those capabilities, you should probably use Kong. Chowkidar exists for teams that don't.
+
+**Traefik** shines in modern container environments where automatic service discovery is the primary requirement. If your problem is dynamic routing inside Kubernetes or Docker Swarm, Traefik is the better fit. Chowkidar focuses on API governance: distributed rate limiting, idempotency, API key lifecycle management, and tenant isolation.
+
+**Nginx** is one of the fastest reverse proxies available. If all you need is routing and basic rate limiting, Nginx is a great choice. Chowkidar targets the point where configuration starts becoming application logic. Instead of composing Lua scripts, custom modules, and multiple configuration files, operators configure gateway behavior through a management API and an admin portal.
+
+Chowkidar is not trying to replace mature gateways. It exists for teams that need production API controls without adopting an entire gateway platform.
+
+---
+
+## What It Does
+
+Every request flows through a non-blocking reactive filter chain:
 
 ```
                      Client Request
@@ -27,10 +71,9 @@ Every request flows through a non-blocking, reactive filter chain that handles t
           |     Cache miss -> Postgres (CB)   |
           |                                   |
           |  2. IpFilterFilter                |
-          |     Load TenantContext            |
-          |     Cache miss -> Postgres        |
-          |     IP Rule -> BLOCK ->  403      |   
-          |                                   |  
+          |     Allowlist / blocklist check   |
+          |     Redis-cached decision         |
+          |                                   |
           |  3. RateLimiterFilter             |
           |     Token Bucket  -> Redis (Lua)  |
           |     Sliding Window -> Redis (Lua) |
@@ -44,126 +87,110 @@ Every request flows through a non-blocking, reactive filter chain that handles t
           |                                   |
           |  5. ProxyFilter                   |
           |     Forward via WebClient         |
+          |     Per-route timeout             |
+          |     Fallback URL on CB open       |
           |     Per-route circuit breaker     |
-          |                                   |
           +-----------------------------------+
                           |
                           v
-                  Tenant Upstream Backend
+                  Tenant Upstream Service
 ```
 
----
+**Key capabilities:**
 
-## Core Engineering Highlights
-
-- **Parallel Multi-Algorithm Rate Limiting:** The gateway runs token bucket and sliding window counter algorithms simultaneously using a reactive `Mono.zip` construct. Token bucket stops short traffic spikes by evaluating velocity, while the sliding window manages overall quota limits over rolling time frames. Both run natively as Lua scripts in Redis, making the read-compute-write sequence entirely atomic without distributed locking overhead.
-
-- **Resilient Infrastructure Degradation:** If the Redis instance goes offline, the gateway switches automatically to an in-process, JVM-managed token bucket backed by `AtomicReference` state loops. This allows traffic to keep moving through the pipeline under localized safety thresholds until connection to the cache tier recovers.
-
-- **Atomic Distributed Idempotency:** Designed to protect mutation endpoints, the idempotency filter catches duplicate transactions using a Redis `SET NX` execution claim. The initial request claims the lock, routes to the upstream backend, and buffers the outgoing response through a custom `ServerHttpResponseDecorator`. Subsequent duplicates match the active lock and get the cached payload instantly accompanied by an `X-Idempotent-Replay` identifier.
-
-- **Isolated Per-Route Circuit Breakers:** Rather than utilizing a single broad circuit breaker, every route maps to its own distinct `upstream-{routeId}` Resilience4j profile. This prevents an outage or performance dip in one tenant's architecture from spilling over and cutting traffic lines for neighboring setups.
-
-- **Secure Key Hashing at Rest:** Tenant API keys are safeguarded using HMAC-SHA256 calculations against a protected environment secret. Raw access tokens are revealed once on initialization and never written to the data layer. Standard random-salted hashing patterns like BCrypt were explicitly bypassed because they break the deterministic string lookups required for high-speed routing filters.
-
-- **API Key Rotation with Grace Period Enforcement:** Tenant keys can be rotated without causing immediate service disruption. The previous key remains valid for a configurable grace period, giving downstream callers time to propagate the new credential. Requests authenticating with a deprecated key receive an `X-Api-Key-Deprecated: true` response header as an explicit migration signal. Tenant accounts can also be explicitly revoked, blocking all access regardless of which key is presented.
-
-- **End-to-End Reactive Lifecycle:** The entire gateway utilizes Spring WebFlux, R2DBC database configurations, and `ReactiveRedisTemplate` wrappers. Thread blocking is completely eliminated from the entry line to the outbound proxy step, and telemetry pipelines fire inside a decoupled `doFinally` event loop block after client data streams close.
-
-- **Rigorous Integration and Failure Testing:** The core test array features 14 end-to-end integration setups and 3 real-time infrastructure failure scripts utilizing Testcontainers. The test cases programmatically drop Postgres or Redis nodes mid-execution to verify that local in-process fallbacks and circuit breaker state changes trigger seamlessly.
+- **Dual-algorithm rate limiting**: token bucket and sliding window run in parallel via atomic Redis Lua scripts. Two algorithms because one isn't enough: token bucket stops short traffic spikes, sliding window enforces rolling quotas.
+- **API key lifecycle management**: HMAC-SHA256 hashed keys, rotation with configurable grace periods, deprecated key warnings, explicit tenant revocation.
+- **Distributed idempotency**: exactly-once execution for mutation endpoints using Redis `SET NX` atomic locking and response replay.
+- **Per-route resilience**: configurable timeouts, fallback URLs with dedicated circuit breakers, upstream health check scheduler with state-change logging.
+- **IP allowlist and blocklist**: per-tenant, Redis-cached, with allowlist mode activating automatically when any ALLOW rule exists.
+- **Fail-open on Redis failure**: local JVM token bucket activates transparently when Redis is unreachable, keeping traffic moving.
+- **Admin portal**: tenant management, route configuration, IP rules, key rotation, and route health dashboard. No curl commands required.
+- **Structured observability**: JSON logs via logstash-logback-encoder, Prometheus metrics via Micrometer, Grafana dashboards, Spring Actuator health endpoints.
 
 ---
 
 ## Quick Start
 
-**Prerequisites:** Docker, Java 21, Maven 3.9+
+**Prerequisites:** Docker, Docker Compose
 
 ```bash
 git clone https://github.com/dnhmd/chowkidar.git
 cd chowkidar
 docker compose up -d
-cd gateway && ./mvnw spring-boot:run
-go run echo_server.go   # test upstream on :8081
 ```
 
-**Create a tenant:**
+Open `http://localhost:8080`. The admin portal is running out of the box.
+
+1. Create a tenant, copy the API key shown once on creation
+2. Login as that tenant
+3. Create a route pointing at your upstream service
+4. Send requests through the gateway with `X-API-Key: {your-key}`
+
 ```bash
-curl -X POST http://localhost:8080/management/tenants \
-  -H "Content-Type: application/json" \
-  -d '{"name": "my-service"}'
-```
-_Response:_
-```json
-{
-  "id": "16c84d44-943e-444e-abaf-4c40bfeafa57",
-  "name": "my-service",
-  "apiKey": "9f8ac6b4d8384fac843d09a77f1e27d5"
-}
+curl http://localhost:8080/your-path \
+  -H "X-API-Key: your-api-key"
 ```
 
-**Create a route:**
-```bash
-curl -X POST http://localhost:8080/management/tenants/{id}/routes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "path": "/echo",
-    "upstreamUrl": "http://127.0.0.1:8081",
-    "capacity": 10,
-    "refillRate": 1,
-    "volumeLimit": 1000,
-    "windowSize": 3600
-  }'
-```
+Every response includes rate limit headers:
 
-**Send a request through the gateway:**
-```bash
-curl http://localhost:8080/echo \
-  -H "X-API-Key: 9f8ac6b4d8384fac843d09a77f1e27d5"
 ```
-
-Every response automatically appends `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` telemetry fields to the client connection. Rate-limited rejections return a 429 status code paired with a defensive `Retry-After` back-off calculation.
+RateLimit-Limit: 100
+RateLimit-Remaining: 99
+RateLimit-Reset: 3600
+```
 
 ---
 
 ## Load Test Results
 
-Performance profiles captured using k6 against the active gateway path, executing distributed rate limit validation and live reverse proxy routing:
+Tested against the full filter chain: HMAC validation, dual rate limiting via Redis Lua scripts, and WebClient proxying, on a single WSL2 development machine sharing CPU and memory with the gateway, Redis, PostgreSQL, and the upstream echo server.
 
-| Metric                      | Result (Gateway Routing Test)          | Result (Rate Limit Flood Test)         |
-|-----------------------------|----------------------------------------|----------------------------------------|
-| Sustained Throughput        | 1,160.13 req/sec (200 VUs, 3m)         | 1,118.70 req/sec (100 VUs, 1m)         |
-| Total Requests Processed    | 208,732                                | 67,159                                 |
-| Minimum Latency             | 1.28ms                                 | 3.54ms                                 |
-| Average Latency             | 110.93ms                               | 89.02ms                                |
-| Median (p50) Latency        | 95.19ms                                | 67.12ms                                |
-| p90 Latency                 | 215.39ms                               | 159.12ms                               |
-| p95 Latency                 | 276.98ms                               | 207.26ms                               |
-| p99 Latency                 | 384.19ms                               | 365.10ms                               |
-| Maximum Latency             | 1.03s                                  | 806.17ms                               |
-| Failure Rate (Uncaught/5xx) | 0.00% (0 out of 208,732)               | 0.00% (0 out of 67,159)                |
-| Verification Checks         | 100% Passed (417,464 / 417,464 checks) | 100% Passed (134,318 / 134,318 checks) |
+| Metric | Gateway Routing Test | Rate Limit Flood Test |
+|---|---|---|
+| Sustained Throughput | 1,160 req/sec (200 VUs, 3m) | 1,118 req/sec (100 VUs, 1m) |
+| Median Latency (p50) | 95ms | 67ms |
+| p95 Latency | 277ms | 207ms |
+| p99 Latency | 384ms | 365ms |
+| Failure Rate | 0.00% | 0.00% |
 
-> All tests executed on a single WSL2 development machine with the gateway, Redis, PostgreSQL, and the upstream echo server sharing the same host CPU and memory. Production deployment with isolated infrastructure would yield significantly higher throughput and lower tail latency.
+Production deployment with isolated infrastructure would yield significantly higher throughput and lower tail latency.
+
+---
+
+## Engineering Trade-offs
+
+Every non-obvious decision in this codebase has an explicit rationale. A few highlights:
+
+**HMAC-SHA256 over BCrypt for API keys**: BCrypt's random salt makes deterministic database lookup impossible. A gateway needs to find a tenant by key hash on every request. HMAC with a server secret produces consistent output while keeping the database useless without the secret.
+
+**Two separate Redis keys for rate limiting**: consolidating token bucket and sliding window state into one key forces sequential Lua script execution. Separate keys allow both scripts to run concurrently via `Mono.zip` without competing for the same lock.
+
+**Fail-open on Redis failure**: a fail-closed posture turns a Redis blip into a complete tenant outage. The local JVM fallback absorbs the gap. A Denial of Service attack against the cache tier doesn't bring down the services behind the gateway.
+
+**Idempotency as opt-in per route**: forcing idempotency on all mutating endpoints would break lightweight ingestion APIs that don't need deduplication. The `requiresIdempotency` flag gives operators explicit control.
+
+**Reactor context for request-scoped state**: deprecated key flags and matched route data travel downstream via Reactor context, not method parameters or domain model fields. Domain objects carry no request-scoped state.
+
+Full decision log in [Engineering Decisions](/docs/engineering-decisions.md).
 
 ---
 
 ## Documentation
 
-- [Architecture and Filter Chain](/docs/architecture.md): Structural choices, filter ordering mechanics, and evolutionary updates across engineering milestones.
-- [Engineering Decisions](/docs/engineering-decisions.md): Technical tradeoffs, rationales behind framework choices, and post-mortem evaluation of architectural directions.
-- [API Reference](/docs/api-reference.md): Full endpoint index and schema payload breakdowns for the internal Management API.
-- [Configuration](/docs/configuration.md): Comprehensive variables registry, application properties, and operational defaults.
+- [Architecture](/docs/architecture.md): filter chain mechanics, state management, and design evolution across sprints
+- [Engineering Decisions](/docs/engineering-decisions.md): trade-off analysis for every non-obvious choice
+- [API Reference](/docs/api-reference.md): full management API endpoint documentation
+- [Configuration](/docs/configuration.md): all environment variables and defaults
 
 ---
 
 ## Build History
 
-Granular breakdown logs detailing development milestones, infrastructure discoveries, and framework iterations reside within `/sprints`.
-
-| Sprint   | Focus                                                                                                                                                                                                            | Status      |
-|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------|
-| Sprint 1 | Reactive filter architecture, Token Bucket and Sliding Window Lua scripts, distributed Redis caching, WebClient proxy routing.                                                                                   | Complete    |
-| Sprint 2 | Centralized Configuration API, isolated per-route circuit breakers, local JVM fallback limiters, global data validation and uniform exception responses.                                                         | Complete    |
-| Sprint 3 | HMAC API key hashing, distributed idempotency filters, structured logging layouts, Actuator monitoring endpoints, Testcontainers integration testing, k6 performance validation.                                 | Complete    |
-| Sprint 5 | Per-route timeout enforcement, fallback URL routing with dedicated circuit breakers, upstream health check scheduler, slow request detection, IP allowlist/blocklist per tenant, query parameter forwarding fix. | Complete    |
-| Sprint 6 | Dockerfile, docker-compose, integration tests, public deployment, admin portal, Prometheus + Grafana.                                                                                                            | In Progress |
+| Sprint | Focus | Status    |
+|---|---|-----------|
+| Sprint 1 | Reactive filter chain, dual-algorithm rate limiting via Redis Lua scripts, WebClient proxy | Complete  |
+| Sprint 2 | Management API, per-route circuit breakers, local JVM rate limit fallback, global exception handling | Complete  |
+| Sprint 3 | HMAC API key hashing, distributed idempotency, structured logging, Testcontainers integration tests, k6 load tests | Complete  |
+| Sprint 4 | API key rotation with grace periods, tenant revocation, deprecated key detection, structured logging pass | Complete  |
+| Sprint 5 | Per-route timeouts, fallback URL routing, upstream health check scheduler, slow request detection, IP allowlist/blocklist | Complete  |
+| Sprint 6 | Admin portal (Svelte), Dockerfile, Railway deployment, Prometheus + Grafana observability | Completed |
