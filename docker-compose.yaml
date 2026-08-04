@@ -44,9 +44,39 @@ services:
     networks:
       - chowkidar-network
 
+  prometheus:
+    build:
+      context: ./prometheus
+      dockerfile: Dockerfile
+    container_name: chowkidar-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+    networks:
+      - chowkidar-network
+    depends_on:
+      - gateway
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: chowkidar-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - chowkidar-network
+    depends_on:
+      - prometheus
+
 volumes:
   postgres_data:
   redis_data:
+  prometheus_data:
+  grafana_data:
 
 networks:
   chowkidar-network:
