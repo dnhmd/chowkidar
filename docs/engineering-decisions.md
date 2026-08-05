@@ -20,6 +20,23 @@ The gateway proxy layer could have been built using raw Netty handlers to provid
 
 Building on raw sockets introduces a large development surface area for problems that are already solved by mature frameworks. Managing protocol variance between HTTP/1.1 and HTTP/2, handling custom TLS handshakes, and overseeing raw byte buffer lifecycles are all complex tasks that present potential vulnerability vectors. `WebClient` provides a high-level reactive HTTP client built on Netty that abstracts these complexities away behind a clean API. Should the proxy layer ever become a system bottleneck, the lower-level Netty foundations remain accessible for direct customization.
 
+### Why the Portal Is Served from the Gateway JAR
+
+A separate frontend deployment adds a second service, a second URL, cross-origin request configuration, and additional Railway services to manage. Serving the Svelte build output from Spring Boot's `resources/static/` keeps the entire product as a single deployable artifact. The portal and the API share the same origin, eliminating CORS entirely.
+
+The tradeoff is that every portal change requires a gateway rebuild and redeploy. This is acceptable for a self-hosted product where deployments are operator-controlled and infrequent. A team running Chowkidar in production can rebuild and redeploy on their own schedule.
+
+### Why Hash-Based Routing Over Server-Side Routing
+
+Hash-based routing (`/#/tenant`) handles all navigation in the browser without the server needing to know about portal routes. The gateway serves `index.html` at the root. Everything after the `#` is invisible to the server and processed entirely by the Svelte router. This works correctly whether the portal is served from localhost, a Railway URL, or any other origin, with no server configuration required.
+
+Server-side routing would require the gateway to serve `index.html` for every portal route (e.g. `/tenant`, `/routes`), which would conflict with the gateway's own routing logic for proxied requests.
+
+### Why Multi-Stage Dockerfile Over Pre-Built JAR
+
+Requiring a pre-built JAR means the CI/CD environment must have Java 21 and Maven installed before Docker can run. Multi-stage builds make the Dockerfile the single source of truth. Any Docker-capable environment — Railway, GitHub Actions, a fresh developer machine — can build and deploy without additional tooling. The first stage downloads dependencies (cached by Docker layer caching on subsequent builds) and compiles the source. The second stage copies only the JAR into a minimal Alpine JRE image, keeping the final image small.
+
+
 ---
 
 ## State Management & Distributed Rate Limiting
@@ -45,6 +62,10 @@ Separating these fields into independent key spaces (`ratelimit:velocity:...` an
 Caching all rules for a tenant and re-evaluating on every request would require deserializing and iterating the full rule set on each cache hit. Caching the evaluated decision per IP address reduces the cache hit path to a single Redis GET and a string comparison.
 
 The tradeoff is cache granularity — a rule change invalidates only the specific IP entries affected, not the entire tenant rule set. Explicit invalidation on mutations handles this correctly without requiring a full tenant cache flush.
+
+### Why `sessionStorage` Over `localStorage` for Tenant Sessions
+
+`localStorage` persists across browser restarts until explicitly cleared. For a portal that stores API keys in session data, indefinite persistence is a security liability as a shared or borrowed machine would retain the session. `sessionStorage` clears automatically when the tab closes, bounding the session lifetime to the browser session without requiring explicit logout. The 8-hour TTL provides a secondary expiry for long-running sessions.
 
 ---
 
@@ -108,15 +129,19 @@ When a request authenticates using a previous key still within its grace period,
 
 Three options were considered: add a `deprecated` boolean to `TenantContext`, add it to the `Tenant` record, or write it to Reactor context.
 
-Adding it to `TenantContext` or `Tenant` conflates request-scoped authentication state with domain model data. Whether a caller used a deprecated key is not a property of the tenant — it is a property of how this specific request authenticated. Domain objects that carry request-scoped metadata become harder to reason about and harder to test in isolation.
+Adding it to `TenantContext` or `Tenant` conflates request-scoped authentication state with domain model data. Whether a caller used a deprecated key is not a property of the tenant, but it is a property of how this specific request authenticated. Domain objects that carry request-scoped metadata become harder to reason about and harder to test in isolation.
 
 Reactor context is the correct scope for request-scoped metadata that needs to travel downstream without modifying domain objects. It mirrors how `TenantContext` itself and the matched `Route` are propagated — through the reactive context, not through method parameters or modified domain state.
 
 ### Why `HEAD` for Health Probes Over `GET`
 
-`GET` requests on application endpoints can have side effects — triggering reads, incrementing counters, invoking downstream calls. For a health probe fired every 30 seconds across all routes, `GET` requests produce unnecessary upstream load and pollute application logs with synthetic traffic.
+`GET` requests on application endpoints can have side effects, i.e., triggering reads, incrementing counters, invoking downstream calls. For a health probe fired every 30 seconds across all routes, `GET` requests produce unnecessary upstream load and pollute application logs with synthetic traffic.
 
 `HEAD` requests return headers and status codes without a response body and conventionally have no side effects. They are the correct tool for liveness checks where the goal is status code confirmation, not response body content.
+
+### Why Prometheus Config Is Baked into a Docker Image
+
+WSL2 Docker Desktop does not reliably support direct file mounts from the WSL filesystem into containers. Attempting to mount `prometheus.yaml` as a volume produces an `OCI runtime` error. Baking the configuration into a custom Prometheus image via a `COPY` instruction sidesteps the WSL2 limitation entirely. The resulting image is slightly larger but requires no host filesystem dependency and works identically on Linux, macOS, and WSL2.
 
 ---
 

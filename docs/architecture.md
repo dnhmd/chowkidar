@@ -238,7 +238,35 @@ The fix removes `clear()` entirely and replaces `addAll()` with a selective head
 
 ---
 
-## Current Filter Chain (Sprint 5)
+## Sprint 6: Deployment, Portal, and Observability
+
+### Containerization and Deployment
+
+Sprint 6 introduced a multi-stage Dockerfile that makes the gateway build fully self-contained. The first stage compiles the source using a Maven image. The second stage copies only the resulting JAR into a minimal JRE Alpine image. No local JDK or Maven installation is required to build or deploy.
+
+The gateway is deployed on Railway with managed PostgreSQL and Redis. Railway resolves database and cache credentials at runtime via variable references. Redis on Railway requires password authentication, which was added to `application.yaml` as an optional environment variable defaulting to empty for local development.
+
+### Admin Portal Architecture
+
+The portal is a Svelte single-page application embedded in the gateway JAR. Vite builds the portal into `gateway/src/main/resources/static/`, which Spring Boot serves automatically. No separate deployment or server is needed.
+
+The portal has two states:
+
+**Operator mode** is unauthenticated. It lists tenants with create, edit, and delete operations. Tenant creation displays the API key once in a modal. The portal uses `GatewayPaths.isFrontendPath()` to bypass the filter chain for static resources.
+
+**Tenant mode** is entered by providing an API key via `POST /management/auth/validate`. On success, a session is written to `sessionStorage` with an 8-hour TTL. The session stores tenant ID, name, API key, status, and deprecated flag. Tenant mode provides four sections: Dashboard (route health), Routes (full CRUD), IP Rules (full CRUD), and Settings (key rotation).
+
+Hash-based routing via `svelte-spa-router` handles navigation entirely in the browser. The gateway only serves `index.html` at the root. All routing is client-side.
+
+### Prometheus and Grafana
+
+`micrometer-registry-prometheus` exposes Spring Boot metrics in Prometheus format at `/actuator/prometheus`. Prometheus scrapes this endpoint every 15 seconds. The Prometheus configuration is baked into a custom Docker image to work around a WSL2 file mount limitation.
+
+Grafana connects to Prometheus and provides the JVM Micrometer dashboard (ID 11378) out of the box, covering heap usage, GC activity, HTTP request rates, R2DBC pool metrics, and Lettuce Redis command latency.
+
+---
+
+## Current Filter Chain (Sprint 6)
 
 The active filter pipeline functions with the following configuration:
 

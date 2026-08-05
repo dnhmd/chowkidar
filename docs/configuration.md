@@ -19,11 +19,12 @@ All configuration properties follow the uniform `${VARIABLE:default}` resolution
 
 ## Distributed Cache Tier (Redis)
 
-| Configuration Property      | Environment Variable | Default Value | Description                                                         |
-|-----------------------------|----------------------|---------------|---------------------------------------------------------------------|
-| `spring.data.redis.host`    | `REDIS_HOST`         | `localhost`   | Target Redis cluster hostname.                                      |
-| `spring.data.redis.port`    | `REDIS_PORT`         | `6379`        | Active Redis network port.                                          |
-| `spring.data.redis.timeout` | —                    | `60000`       | Asynchronous network connection timeout calculated in milliseconds. |
+| Configuration Property       | Environment Variable | Default Value | Description                                                                                                                              |
+|------------------------------|----------------------|---------------|------------------------------------------------------------------------------------------------------------------------------------------|
+| `spring.data.redis.host`     | `REDIS_HOST`         | `localhost`   | Target Redis cluster hostname.                                                                                                           |
+| `spring.data.redis.port`     | `REDIS_PORT`         | `6379`        | Active Redis network port.                                                                                                               |
+| `spring.data.redis.password` | `REDIS_PASSWORD`     | `(empty)`     | Redis authentication password. Empty by default for local development. Required for managed Redis instances that enforce authentication. |
+| `spring.data.redis.timeout`  | —                    | `60000`       | Asynchronous network connection timeout calculated in milliseconds.                                                                      |
 
 ## Cryptographic Security
 
@@ -145,7 +146,7 @@ Log patterns and delivery modes are profile-controlled using the underlying `log
 
 The rolling file appender splits logs at 10MB increments, maintains a 30-day historical window, and caps global file size storage at 2GB. Declare the target runtime environment profile using `spring.profiles.active` inside `application.yaml` or by passing the `SPRING_PROFILES_ACTIVE` environment variable.
 
-## System Observability (Actuator)
+## System Observability
 
 ```yaml
 management:
@@ -162,6 +163,20 @@ management:
 ```
 
 All system metrics and health diagnostics sit at the `/actuator/*` endpoint path and bypass the core gateway filters via the central `GatewayPaths.isActuatorPath()` utility check.
+
+### Prometheus Observability
+
+The Prometheus metrics endpoint is enabled by adding `prometheus` to the Actuator exposure list:
+
+```yaml
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics, circuitbreakers, prometheus
+```
+
+Metrics are available at `/actuator/prometheus` in Prometheus text format. The endpoint bypasses the gateway filter chain via `GatewayPaths.isActuatorPath()`.
 
 ---
 

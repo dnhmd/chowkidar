@@ -18,6 +18,36 @@ Callers using a key that has been rotated but is still within its grace period w
 |------------------------|------------------------------------------------------------------------------------------------------|
 | `X-Api-Key-Deprecated` | Present and `true` when the request authenticated using a rotated key still within its grace period. |
 
+### Validate API Key
+
+```
+POST /management/auth/validate
+```
+
+Validates an API key and returns tenant context. Used by the admin portal login flow. Does not require an existing session.
+
+**Request Payload:**
+```json
+{
+  "apiKey": "9f8ac6b4d8384fac843d09a77f1e27d5"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "tenantId": "16c84d44-943e-444e-abaf-4c40bfeafa57",
+  "tenantName": "my-service",
+  "status": "ACTIVE",
+  "isDeprecated": false
+}
+```
+
+`isDeprecated` is `true` when the key used is a rotated key still within its grace period. The admin portal displays a deprecation warning banner in this case.
+
+**Exception Rules:** Returns 401 if the key is unrecognized, 403 if the tenant is revoked or the key has expired past its grace period, 503 if the database is unavailable.
+
+
 ---
 
 ## Tenants
